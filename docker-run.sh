@@ -131,9 +131,41 @@ build_image() {
     log "镜像构建完成"
 }
 
+# 检查服务是否已运行
+check_running() {
+    local service="${1:-numharvest}"
+    local container_name="${PROJECT_NAME}-app"
+    
+    if [ "$service" != "numharvest" ]; then
+        container_name="${PROJECT_NAME}-${service}"
+    fi
+    
+    if docker ps --filter "name=$container_name" --filter "status=running" | grep -q "$container_name"; then
+        return 0  # 正在运行
+    else
+        return 1  # 未运行
+    fi
+}
+
 # 启动服务
 start_services() {
     local services="${1:-numharvest}"
+    
+    # 检查是否已运行
+    if check_running "$services"; then
+        warn "服务 $services 已在运行"
+        read -p "是否要重启服务？[Y/n]: " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            log "重启服务: $services"
+            stop_services "$services"
+            sleep 3
+        else
+            info "保持现有服务运行"
+            show_status
+            return 0
+        fi
+    fi
     
     log "启动服务: $services"
     cd "$SCRIPT_DIR"
@@ -329,6 +361,9 @@ show_help() {
     echo "管理命令:"
     echo "  logs [service] [-f]  查看日志 (-f=实时查看)"
     echo "  shell [service]      进入容器 (默认: numharvest)"
+    echo "  task-status         检查任务运行状态"
+    echo "  unlock              强制解锁卡死的任务"
+    echo "  task-test           执行一次测试任务"
     echo "  update              更新服务"
     echo "  cleanup             清理资源"
     echo "  backup              备份数据"
@@ -379,6 +414,18 @@ main() {
             ;;
         shell|exec|bash)
             enter_container "$2"
+            ;;
+        task-status)
+            info "检查任务状态..."
+            docker exec "${PROJECT_NAME}-app" python main.py --status 2>/dev/null || error "无法获取任务状态，容器可能未运行"
+            ;;
+        unlock)
+            info "强制解锁任务..."
+            docker exec "${PROJECT_NAME}-app" python main.py --unlock 2>/dev/null || error "无法解锁，容器可能未运行"
+            ;;
+        task-test)
+            info "执行一次测试任务..."
+            docker exec "${PROJECT_NAME}-app" python main.py --test 2>/dev/null || error "无法执行测试任务，容器可能未运行"
             ;;
         update)
             check_docker
