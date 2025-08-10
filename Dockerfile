@@ -31,8 +31,9 @@ RUN apt-get update && apt-get install -y \
 # 复制依赖文件
 COPY requirements.txt .
 
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+# 升级pip并安装Python依赖
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # 安装 Playwright 浏览器
 RUN playwright install chromium && \
@@ -41,17 +42,17 @@ RUN playwright install chromium && \
 # 复制应用代码
 COPY . .
 
-# 创建日志目录
-RUN mkdir -p /app/logs
+# 创建非root用户并设置权限
+RUN useradd -m -u 1000 numharvest && \
+    mkdir -p /app/logs && \
+    chown -R numharvest:numharvest /app
+
+# 切换到非root用户
+USER numharvest
 
 # 设置环境变量
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
-
-# 创建非root用户
-RUN useradd -m -u 1000 numharvest && \
-    chown -R numharvest:numharvest /app
-USER numharvest
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
