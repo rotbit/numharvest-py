@@ -35,9 +35,18 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 安装 Playwright 浏览器
+# 设置Playwright环境变量
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# 安装 Playwright 浏览器 (在root用户下)
 RUN playwright install chromium && \
-    playwright install-deps chromium
+    playwright install-deps chromium && \
+    playwright install chromium --force
+
+# 验证Playwright安装
+RUN python -c "from playwright.sync_api import sync_playwright; print('Playwright安装成功')" && \
+    echo "浏览器文件:" && \
+    find /ms-playwright -name "*chromium*" | head -5
 
 # 复制应用代码
 COPY . .
