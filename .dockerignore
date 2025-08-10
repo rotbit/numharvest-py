@@ -1,0 +1,89 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+logs/
+data/
+backups/
+*.pid
+*.log
+numharvest.pid
+numharvest.log
+numharvest_scheduler.log
+
+# Docker
+Dockerfile
+docker-compose.yml
+docker-compose.override.yml
+.dockerignore
+
+# Scripts
+run.sh
+docker-run.sh
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# Cache directories
+.cache/
+.playwright/
+
+# Documentation
+README.md
+CLAUDE.md
+docs/
+
+# Test files
+tests/
+test_*
+*_test.py
+
+# JSON cache files (optional - comment out if needed)
+*.json

@@ -143,6 +143,11 @@ class NumberHarvestScheduler:
         schedule.every().day.at("08:00").do(self.run_parallel_scraping_and_sync)
         self.logger.info("定时任务调度设置完成：每天8点执行")
         
+        # 创建健康检查文件
+        import os
+        with open("/tmp/healthcheck", "w") as f:
+            f.write("healthy")
+        
     def run_scheduler(self):
         """运行调度器主循环"""
         self.setup_schedule()
