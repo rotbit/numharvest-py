@@ -1,0 +1,1202 @@
+{
+  "combinations": [
+    {
+      "state": "NJ",
+      "npa": "201"
+    },
+    {
+      "state": "DC",
+      "npa": "202"
+    },
+    {
+      "state": "CT",
+      "npa": "203"
+    },
+    {
+      "state": "MB",
+      "npa": "204"
+    },
+    {
+      "state": "AL",
+      "npa": "205"
+    },
+    {
+      "state": "WA",
+      "npa": "206"
+    },
+    {
+      "state": "ME",
+      "npa": "207"
+    },
+    {
+      "state": "ID",
+      "npa": "208"
+    },
+    {
+      "state": "CA",
+      "npa": "209"
+    },
+    {
+      "state": "TX",
+      "npa": "210"
+    },
+    {
+      "state": "NY",
+      "npa": "212"
+    },
+    {
+      "state": "CA",
+      "npa": "213"
+    },
+    {
+      "state": "TX",
+      "npa": "214"
+    },
+    {
+      "state": "PA",
+      "npa": "215"
+    },
+    {
+      "state": "OH",
+      "npa": "216"
+    },
+    {
+      "state": "IL",
+      "npa": "217"
+    },
+    {
+      "state": "MN",
+      "npa": "218"
+    },
+    {
+      "state": "IN",
+      "npa": "219"
+    },
+    {
+      "state": "OH",
+      "npa": "220"
+    },
+    {
+      "state": "PA",
+      "npa": "223"
+    },
+    {
+      "state": "IL",
+      "npa": "224"
+    },
+    {
+      "state": "LA",
+      "npa": "225"
+    },
+    {
+      "state": "ON",
+      "npa": "226"
+    },
+    {
+      "state": "MS",
+      "npa": "228"
+    },
+    {
+      "state": "GA",
+      "npa": "229"
+    },
+    {
+      "state": "MI",
+      "npa": "231"
+    },
+    {
+      "state": "OH",
+      "npa": "234"
+    },
+    {
+      "state": "BC",
+      "npa": "236"
+    },
+    {
+      "state": "FL",
+      "npa": "239"
+    },
+    {
+      "state": "MD",
+      "npa": "240"
+    },
+    {
+      "state": "BD",
+      "npa": "246"
+    },
+    {
+      "state": "MI",
+      "npa": "248"
+    },
+    {
+      "state": "ON",
+      "npa": "249"
+    },
+    {
+      "state": "BC",
+      "npa": "250"
+    },
+    {
+      "state": "AL",
+      "npa": "251"
+    },
+    {
+      "state": "NC",
+      "npa": "252"
+    },
+    {
+      "state": "WA",
+      "npa": "253"
+    },
+    {
+      "state": "TX",
+      "npa": "254"
+    },
+    {
+      "state": "AL",
+      "npa": "256"
+    },
+    {
+      "state": "IN",
+      "npa": "260"
+    },
+    {
+      "state": "WI",
+      "npa": "262"
+    },
+    {
+      "state": "AI",
+      "npa": "264"
+    },
+    {
+      "state": "PA",
+      "npa": "267"
+    },
+    {
+      "state": "AN",
+      "npa": "268"
+    },
+    {
+      "state": "MI",
+      "npa": "269"
+    },
+    {
+      "state": "KY",
+      "npa": "270"
+    },
+    {
+      "state": "PA",
+      "npa": "272"
+    },
+    {
+      "state": "VA",
+      "npa": "276"
+    },
+    {
+      "state": "CA",
+      "npa": "279"
+    },
+    {
+      "state": "TX",
+      "npa": "281"
+    },
+    {
+      "state": "BV",
+      "npa": "284"
+    },
+    {
+      "state": "ON",
+      "npa": "289"
+    },
+    {
+      "state": "MD",
+      "npa": "301"
+    },
+    {
+      "state": "DE",
+      "npa": "302"
+    },
+    {
+      "state": "CO",
+      "npa": "303"
+    },
+    {
+      "state": "WV",
+      "npa": "304"
+    },
+    {
+      "state": "FL",
+      "npa": "305"
+    },
+    {
+      "state": "SK",
+      "npa": "306"
+    },
+    {
+      "state": "WY",
+      "npa": "307"
+    },
+    {
+      "state": "NE",
+      "npa": "308"
+    },
+    {
+      "state": "IL",
+      "npa": "309"
+    },
+    {
+      "state": "CA",
+      "npa": "310"
+    },
+    {
+      "state": "IL",
+      "npa": "312"
+    },
+    {
+      "state": "MI",
+      "npa": "313"
+    },
+    {
+      "state": "MO",
+      "npa": "314"
+    },
+    {
+      "state": "NY",
+      "npa": "315"
+    },
+    {
+      "state": "KS",
+      "npa": "316"
+    },
+    {
+      "state": "IN",
+      "npa": "317"
+    },
+    {
+      "state": "LA",
+      "npa": "318"
+    },
+    {
+      "state": "IA",
+      "npa": "319"
+    },
+    {
+      "state": "MN",
+      "npa": "320"
+    },
+    {
+      "state": "FL",
+      "npa": "321"
+    },
+    {
+      "state": "CA",
+      "npa": "323"
+    },
+    {
+      "state": "TX",
+      "npa": "325"
+    },
+    {
+      "state": "OH",
+      "npa": "326"
+    },
+    {
+      "state": "OH",
+      "npa": "330"
+    },
+    {
+      "state": "IL",
+      "npa": "331"
+    },
+    {
+      "state": "NY",
+      "npa": "332"
+    },
+    {
+      "state": "AL",
+      "npa": "334"
+    },
+    {
+      "state": "NC",
+      "npa": "336"
+    },
+    {
+      "state": "LA",
+      "npa": "337"
+    },
+    {
+      "state": "MA",
+      "npa": "339"
+    },
+    {
+      "state": "VI",
+      "npa": "340"
+    },
+    {
+      "state": "CA",
+      "npa": "341"
+    },
+    {
+      "state": "ON",
+      "npa": "343"
+    },
+    {
+      "state": "CQ",
+      "npa": "345"
+    },
+    {
+      "state": "TX",
+      "npa": "346"
+    },
+    {
+      "state": "NY",
+      "npa": "347"
+    },
+    {
+      "state": "MA",
+      "npa": "351"
+    },
+    {
+      "state": "FL",
+      "npa": "352"
+    },
+    {
+      "state": "WA",
+      "npa": "360"
+    },
+    {
+      "state": "TX",
+      "npa": "361"
+    },
+    {
+      "state": "KY",
+      "npa": "364"
+    },
+    {
+      "state": "ON",
+      "npa": "365"
+    },
+    {
+      "state": "QC",
+      "npa": "367"
+    },
+    {
+      "state": "AB",
+      "npa": "368"
+    },
+    {
+      "state": "OH",
+      "npa": "380"
+    },
+    {
+      "state": "UT",
+      "npa": "385"
+    },
+    {
+      "state": "FL",
+      "npa": "386"
+    },
+    {
+      "state": "RI",
+      "npa": "401"
+    },
+    {
+      "state": "NE",
+      "npa": "402"
+    },
+    {
+      "state": "AB",
+      "npa": "403"
+    },
+    {
+      "state": "GA",
+      "npa": "404"
+    },
+    {
+      "state": "OK",
+      "npa": "405"
+    },
+    {
+      "state": "MT",
+      "npa": "406"
+    },
+    {
+      "state": "FL",
+      "npa": "407"
+    },
+    {
+      "state": "CA",
+      "npa": "408"
+    },
+    {
+      "state": "TX",
+      "npa": "409"
+    },
+    {
+      "state": "MD",
+      "npa": "410"
+    },
+    {
+      "state": "PA",
+      "npa": "412"
+    },
+    {
+      "state": "MA",
+      "npa": "413"
+    },
+    {
+      "state": "WI",
+      "npa": "414"
+    },
+    {
+      "state": "CA",
+      "npa": "415"
+    },
+    {
+      "state": "ON",
+      "npa": "416"
+    },
+    {
+      "state": "MO",
+      "npa": "417"
+    },
+    {
+      "state": "QC",
+      "npa": "418"
+    },
+    {
+      "state": "OH",
+      "npa": "419"
+    },
+    {
+      "state": "TN",
+      "npa": "423"
+    },
+    {
+      "state": "CA",
+      "npa": "424"
+    },
+    {
+      "state": "WA",
+      "npa": "425"
+    },
+    {
+      "state": "TX",
+      "npa": "430"
+    },
+    {
+      "state": "MB",
+      "npa": "431"
+    },
+    {
+      "state": "TX",
+      "npa": "432"
+    },
+    {
+      "state": "VA",
+      "npa": "434"
+    },
+    {
+      "state": "UT",
+      "npa": "435"
+    },
+    {
+      "state": "ON",
+      "npa": "437"
+    },
+    {
+      "state": "QC",
+      "npa": "438"
+    },
+    {
+      "state": "OH",
+      "npa": "440"
+    },
+    {
+      "state": "BM",
+      "npa": "441"
+    },
+    {
+      "state": "CA",
+      "npa": "442"
+    },
+    {
+      "state": "MD",
+      "npa": "443"
+    },
+    {
+      "state": "PA",
+      "npa": "445"
+    },
+    {
+      "state": "IL",
+      "npa": "447"
+    },
+    {
+      "state": "FL",
+      "npa": "448"
+    },
+    {
+      "state": "QC",
+      "npa": "450"
+    },
+    {
+      "state": "OR",
+      "npa": "458"
+    },
+    {
+      "state": "IN",
+      "npa": "463"
+    },
+    {
+      "state": "IL",
+      "npa": "464"
+    },
+    {
+      "state": "TX",
+      "npa": "469"
+    },
+    {
+      "state": "GA",
+      "npa": "470"
+    },
+    {
+      "state": "GN",
+      "npa": "473"
+    },
+    {
+      "state": "CT",
+      "npa": "475"
+    },
+    {
+      "state": "GA",
+      "npa": "478"
+    },
+    {
+      "state": "AR",
+      "npa": "479"
+    },
+    {
+      "state": "AZ",
+      "npa": "480"
+    },
+    {
+      "state": "PA",
+      "npa": "484"
+    },
+    {
+      "state": "AR",
+      "npa": "501"
+    },
+    {
+      "state": "KY",
+      "npa": "502"
+    },
+    {
+      "state": "OR",
+      "npa": "503"
+    },
+    {
+      "state": "LA",
+      "npa": "504"
+    },
+    {
+      "state": "NM",
+      "npa": "505"
+    },
+    {
+      "state": "NB",
+      "npa": "506"
+    },
+    {
+      "state": "MN",
+      "npa": "507"
+    },
+    {
+      "state": "MA",
+      "npa": "508"
+    },
+    {
+      "state": "WA",
+      "npa": "509"
+    },
+    {
+      "state": "CA",
+      "npa": "510"
+    },
+    {
+      "state": "TX",
+      "npa": "512"
+    },
+    {
+      "state": "OH",
+      "npa": "513"
+    },
+    {
+      "state": "QC",
+      "npa": "514"
+    },
+    {
+      "state": "IA",
+      "npa": "515"
+    },
+    {
+      "state": "NY",
+      "npa": "516"
+    },
+    {
+      "state": "MI",
+      "npa": "517"
+    },
+    {
+      "state": "NY",
+      "npa": "518"
+    },
+    {
+      "state": "ON",
+      "npa": "519"
+    },
+    {
+      "state": "AZ",
+      "npa": "520"
+    },
+    {
+      "state": "CA",
+      "npa": "530"
+    },
+    {
+      "state": "NE",
+      "npa": "531"
+    },
+    {
+      "state": "WI",
+      "npa": "534"
+    },
+    {
+      "state": "OK",
+      "npa": "539"
+    },
+    {
+      "state": "VA",
+      "npa": "540"
+    },
+    {
+      "state": "OR",
+      "npa": "541"
+    },
+    {
+      "state": "ON",
+      "npa": "548"
+    },
+    {
+      "state": "NJ",
+      "npa": "551"
+    },
+    {
+      "state": "CA",
+      "npa": "559"
+    },
+    {
+      "state": "FL",
+      "npa": "561"
+    },
+    {
+      "state": "CA",
+      "npa": "562"
+    },
+    {
+      "state": "IA",
+      "npa": "563"
+    },
+    {
+      "state": "WA",
+      "npa": "564"
+    },
+    {
+      "state": "OH",
+      "npa": "567"
+    },
+    {
+      "state": "PA",
+      "npa": "570"
+    },
+    {
+      "state": "VA",
+      "npa": "571"
+    },
+    {
+      "state": "OK",
+      "npa": "572"
+    },
+    {
+      "state": "MO",
+      "npa": "573"
+    },
+    {
+      "state": "IN",
+      "npa": "574"
+    },
+    {
+      "state": "NM",
+      "npa": "575"
+    },
+    {
+      "state": "QC",
+      "npa": "579"
+    },
+    {
+      "state": "OK",
+      "npa": "580"
+    },
+    {
+      "state": "QC",
+      "npa": "581"
+    },
+    {
+      "state": "PA",
+      "npa": "582"
+    },
+    {
+      "state": "NY",
+      "npa": "585"
+    },
+    {
+      "state": "MI",
+      "npa": "586"
+    },
+    {
+      "state": "AB",
+      "npa": "587"
+    },
+    {
+      "state": "MS",
+      "npa": "601"
+    },
+    {
+      "state": "AZ",
+      "npa": "602"
+    },
+    {
+      "state": "NH",
+      "npa": "603"
+    },
+    {
+      "state": "BC",
+      "npa": "604"
+    },
+    {
+      "state": "SD",
+      "npa": "605"
+    },
+    {
+      "state": "KY",
+      "npa": "606"
+    },
+    {
+      "state": "NY",
+      "npa": "607"
+    },
+    {
+      "state": "WI",
+      "npa": "608"
+    },
+    {
+      "state": "NJ",
+      "npa": "609"
+    },
+    {
+      "state": "PA",
+      "npa": "610"
+    },
+    {
+      "state": "MN",
+      "npa": "612"
+    },
+    {
+      "state": "ON",
+      "npa": "613"
+    },
+    {
+      "state": "OH",
+      "npa": "614"
+    },
+    {
+      "state": "TN",
+      "npa": "615"
+    },
+    {
+      "state": "MI",
+      "npa": "616"
+    },
+    {
+      "state": "MA",
+      "npa": "617"
+    },
+    {
+      "state": "IL",
+      "npa": "618"
+    },
+    {
+      "state": "CA",
+      "npa": "619"
+    },
+    {
+      "state": "KS",
+      "npa": "620"
+    },
+    {
+      "state": "AZ",
+      "npa": "623"
+    },
+    {
+      "state": "CA",
+      "npa": "626"
+    },
+    {
+      "state": "CA",
+      "npa": "628"
+    },
+    {
+      "state": "TN",
+      "npa": "629"
+    },
+    {
+      "state": "IL",
+      "npa": "630"
+    },
+    {
+      "state": "NY",
+      "npa": "631"
+    },
+    {
+      "state": "MO",
+      "npa": "636"
+    },
+    {
+      "state": "SK",
+      "npa": "639"
+    },
+    {
+      "state": "NJ",
+      "npa": "640"
+    },
+    {
+      "state": "IA",
+      "npa": "641"
+    },
+    {
+      "state": "NY",
+      "npa": "646"
+    },
+    {
+      "state": "ON",
+      "npa": "647"
+    },
+    {
+      "state": "TC",
+      "npa": "649"
+    },
+    {
+      "state": "CA",
+      "npa": "650"
+    },
+    {
+      "state": "MN",
+      "npa": "651"
+    },
+    {
+      "state": "FL",
+      "npa": "656"
+    },
+    {
+      "state": "CA",
+      "npa": "657"
+    },
+    {
+      "state": "AL",
+      "npa": "659"
+    },
+    {
+      "state": "MO",
+      "npa": "660"
+    },
+    {
+      "state": "CA",
+      "npa": "661"
+    },
+    {
+      "state": "MS",
+      "npa": "662"
+    },
+    {
+      "state": "RT",
+      "npa": "664"
+    },
+    {
+      "state": "MD",
+      "npa": "667"
+    },
+    {
+      "state": "CA",
+      "npa": "669"
+    },
+    {
+      "state": "NN",
+      "npa": "670"
+    },
+    {
+      "state": "GU",
+      "npa": "671"
+    },
+    {
+      "state": "BC",
+      "npa": "672"
+    },
+    {
+      "state": "GA",
+      "npa": "678"
+    },
+    {
+      "state": "NY",
+      "npa": "680"
+    },
+    {
+      "state": "WV",
+      "npa": "681"
+    },
+    {
+      "state": "TX",
+      "npa": "682"
+    },
+    {
+      "state": "AS",
+      "npa": "684"
+    },
+    {
+      "state": "FL",
+      "npa": "689"
+    },
+    {
+      "state": "ND",
+      "npa": "701"
+    },
+    {
+      "state": "NV",
+      "npa": "702"
+    },
+    {
+      "state": "VA",
+      "npa": "703"
+    },
+    {
+      "state": "NC",
+      "npa": "704"
+    },
+    {
+      "state": "ON",
+      "npa": "705"
+    },
+    {
+      "state": "GA",
+      "npa": "706"
+    },
+    {
+      "state": "CA",
+      "npa": "707"
+    },
+    {
+      "state": "IL",
+      "npa": "708"
+    },
+    {
+      "state": "NF",
+      "npa": "709"
+    },
+    {
+      "state": "IA",
+      "npa": "712"
+    },
+    {
+      "state": "TX",
+      "npa": "713"
+    },
+    {
+      "state": "CA",
+      "npa": "714"
+    },
+    {
+      "state": "WI",
+      "npa": "715"
+    },
+    {
+      "state": "NY",
+      "npa": "716"
+    },
+    {
+      "state": "PA",
+      "npa": "717"
+    },
+    {
+      "state": "NY",
+      "npa": "718"
+    },
+    {
+      "state": "CO",
+      "npa": "719"
+    },
+    {
+      "state": "CO",
+      "npa": "720"
+    },
+    {
+      "state": "PA",
+      "npa": "724"
+    },
+    {
+      "state": "NV",
+      "npa": "725"
+    },
+    {
+      "state": "TX",
+      "npa": "726"
+    },
+    {
+      "state": "FL",
+      "npa": "727"
+    },
+    {
+      "state": "TN",
+      "npa": "731"
+    },
+    {
+      "state": "NJ",
+      "npa": "732"
+    },
+    {
+      "state": "MI",
+      "npa": "734"
+    },
+    {
+      "state": "TX",
+      "npa": "737"
+    },
+    {
+      "state": "OH",
+      "npa": "740"
+    },
+    {
+      "state": "ON",
+      "npa": "742"
+    },
+    {
+      "state": "NC",
+      "npa": "743"
+    },
+    {
+      "state": "CA",
+      "npa": "747"
+    },
+    {
+      "state": "FL",
+      "npa": "754"
+    },
+    {
+      "state": "VA",
+      "npa": "757"
+    },
+    {
+      "state": "SA",
+      "npa": "758"
+    },
+    {
+      "state": "CA",
+      "npa": "760"
+    },
+    {
+      "state": "GA",
+      "npa": "762"
+    },
+    {
+      "state": "MN",
+      "npa": "763"
+    },
+    {
+      "state": "IN",
+      "npa": "765"
+    },
+    {
+      "state": "DM",
+      "npa": "767"
+    },
+    {
+      "state": "MS",
+      "npa": "769"
+    },
+    {
+      "state": "GA",
+      "npa": "770"
+    },
+    {
+      "state": "DC",
+      "npa": "771"
+    },
+    {
+      "state": "FL",
+      "npa": "772"
+    },
+    {
+      "state": "IL",
+      "npa": "773"
+    },
+    {
+      "state": "MA",
+      "npa": "774"
+    },
+    {
+      "state": "NV",
+      "npa": "775"
+    },
+    {
+      "state": "BC",
+      "npa": "778"
+    },
+    {
+      "state": "IL",
+      "npa": "779"
+    },
+    {
+      "state": "AB",
+      "npa": "780"
+    },
+    {
+      "state": "MA",
+      "npa": "781"
+    },
+    {
+      "state": "NS",
+      "npa": "782"
+    },
+    {
+      "state": "ZF",
+      "npa": "784"
+    },
+    {
+      "state": "KS",
+      "npa": "785"
+    },
+    {
+      "state": "FL",
+      "npa": "786"
+    },
+    {
+      "state": "PR",
+      "npa": "787"
+    },
+    {
+      "state": "UT",
+      "npa": "801"
+    }
+  ],
+  "timestamp": "2025-08-09 15:37:08",
+  "total_count": 299
+}
