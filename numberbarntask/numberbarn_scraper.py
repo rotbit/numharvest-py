@@ -134,56 +134,66 @@ class NumberbarnNumberExtractor:
             return False
         
         try:
-            documents = []
             current_time = datetime.utcnow()
+            inserted_count = 0
+            updated_count = 0
+            skipped_count = 0
             
             for number_data in numbers:
-                doc = {
-                    'number': number_data.get('number', ''),
-                    'price': number_data.get('price', ''),
-                    'state': number_data.get('state', ''),
-                    'npa': number_data.get('npa', ''),
-                    'page': number_data.get('page', 1),
-                    'source_url': number_data.get('source_url', ''),
-                    'created_at': current_time,
-                    'updated_at': current_time
-                }
-                documents.append(doc)
+                number = number_data.get('number', '')
+                new_price = number_data.get('price', '')
+                
+                if not number:
+                    continue
+                
+                # 查询现有记录
+                existing = self.collection.find_one({'number': number})
+                
+                if existing is None:
+                    # 新记录，直接插入
+                    doc = {
+                        'number': number,
+                        'price': new_price,
+                        'state': number_data.get('state', ''),
+                        'npa': number_data.get('npa', ''),
+                        'page': number_data.get('page', 1),
+                        'source_url': number_data.get('source_url', ''),
+                        'created_at': current_time,
+                        'updated_at': current_time
+                    }
+                    try:
+                        self.collection.insert_one(doc)
+                        inserted_count += 1
+                    except Exception as e:
+                        print(f"    插入记录失败 {number}: {e}")
+                        
+                elif existing.get('price') != new_price:
+                    # 价格不同，更新记录
+                    try:
+                        self.collection.update_one(
+                            {'number': number},
+                            {'$set': {
+                                'price': new_price,
+                                'state': number_data.get('state', ''),
+                                'npa': number_data.get('npa', ''),
+                                'page': number_data.get('page', 1),
+                                'source_url': number_data.get('source_url', ''),
+                                'updated_at': current_time
+                            }}
+                        )
+                        updated_count += 1
+                    except Exception as e:
+                        print(f"    更新记录失败 {number}: {e}")
+                else:
+                    # 价格相同，跳过
+                    skipped_count += 1
             
-            # 批量插入，忽略重复记录
-            if documents:
-                try:
-                    result = self.collection.insert_many(documents, ordered=False)
-                    print(f"  MongoDB: 成功插入 {len(result.inserted_ids)} 条记录")
-                    return True
-                except Exception as e:
-                    # 处理重复键错误
-                    if 'duplicate key error' in str(e).lower() or 'E11000' in str(e):
-                        # 逐条插入以处理重复记录
-                        inserted_count = 0
-                        for doc in documents:
-                            try:
-                                self.collection.insert_one(doc)
-                                inserted_count += 1
-                            except Exception:
-                                # 记录已存在，更新时间戳
-                                try:
-                                    self.collection.update_one(
-                                        {'number': doc['number']},
-                                        {'$set': {'updated_at': current_time}}
-                                    )
-                                except Exception:
-                                    pass
-                        print(f"  MongoDB: 插入 {inserted_count} 条新记录，跳过重复记录")
-                        return True
-                    else:
-                        raise e
+            print(f"  MongoDB: 插入 {inserted_count} 条新记录，更新 {updated_count} 条记录，跳过 {skipped_count} 条相同记录")
+            return True
                         
         except Exception as e:
             print(f"  MongoDB保存失败: {e}")
             return False
-        
-        return False
     
     def close_mongodb(self):
         """关闭MongoDB连接"""

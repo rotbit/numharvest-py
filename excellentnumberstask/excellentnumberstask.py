@@ -103,17 +103,32 @@ class AreaCodeNumbersHarvester:
 
     # ---------------- 主流程 ----------------
     def run(self, index_path_or_dir: Optional[str] = None, limit: Optional[int] = None) -> Dict:
-        # 检查索引文件是否存在
-        index_file = self._pick_index_file(index_path_or_dir)
+        # 先检查索引文件是否存在，如果不存在则生成
+        base_dir = index_path_or_dir if (index_path_or_dir and os.path.isdir(index_path_or_dir)) else "."
+        fallback = os.path.join(base_dir, DEFAULT_INDEX_LATEST)
+        candidates = sorted(
+            glob.glob(os.path.join(base_dir, DEFAULT_INDEX_GLOB)),
+            key=lambda p: os.path.getmtime(p),
+            reverse=True,
+        )
         
-        # 如果索引文件不存在，先执行 StateAreaCodeScraper 来抓取数据
-        if not os.path.exists(index_file):
-            print(f"[INFO] {index_file} not found. Running StateAreaCodeScraper first...")
-            scraper = StateAreaCodeScraper()
-            scraper.run()  # 执行抓取操作
-            
-            # 重新加载抓取后的索引文件
+        # 如果既没有时间戳文件也没有默认文件，则先生成
+        if not candidates and not os.path.exists(fallback):
+            print(f"[INFO] No index file found in {base_dir}. Running StateAreaCodeScraper first...")
+            try:
+                scraper = StateAreaCodeScraper()
+                scraper.run()  # 执行抓取操作
+                print(f"[INFO] StateAreaCodeScraper completed successfully")
+            except Exception as e:
+                print(f"[ERROR] Failed to generate index file: {e}")
+                raise RuntimeError(f"无法生成索引文件: {e}")
+        
+        # 现在可以安全地获取索引文件
+        try:
             index_file = self._pick_index_file(index_path_or_dir)
+        except FileNotFoundError as e:
+            print(f"[ERROR] Index file still not found after generation attempt: {e}")
+            raise
         
         # 加载索引并开始处理
         data = self._load_index(index_file)

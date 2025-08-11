@@ -270,13 +270,13 @@ class MongoToPostgreSQLSync:
         return normalized_data
     
     def insert_to_postgresql(self, data: List[Dict]) -> bool:
-        """将数据插入PostgreSQL"""
+        """将数据插入PostgreSQL，智能去重避免重复数据"""
         if not data:
             return True
             
         try:
             with self.postgres_conn.cursor() as cursor:
-                # 先对数据进行去重，以phone为键，保留最后一条记录
+                # 第一步：对输入数据进行去重，以phone为键，保留最新的记录
                 unique_data = {}
                 for record in data:
                     phone = record['phone']
@@ -293,56 +293,113 @@ class MongoToPostgreSQLSync:
                 deduplicated_data = list(unique_data.values())
                 
                 if len(deduplicated_data) < len(data):
-                    self.logger.info(f"数据去重: {len(data)} -> {len(deduplicated_data)} 条记录")
+                    self.logger.info(f"输入数据去重: {len(data)} -> {len(deduplicated_data)} 条记录")
                 
-                # 分批处理，避免单批次数据量过大
-                total_inserted = 0
+                # 第二步：检查PostgreSQL中已存在的记录，实现智能去重
+                inserted_count = 0
+                updated_count = 0
+                skipped_count = 0
+                
                 for i in range(0, len(deduplicated_data), self.batch_size):
                     batch = deduplicated_data[i:i + self.batch_size]
                     
-                    # 构建插入语句
-                    insert_query = sql.SQL("""
-                        INSERT INTO phone_numbers 
-                        (phone, price_str, original_price, adjusted_price, source_url, source, updated_at)
-                        VALUES %s
-                        ON CONFLICT (phone) DO UPDATE SET
-                            price_str = EXCLUDED.price_str,
-                            original_price = EXCLUDED.original_price,
-                            adjusted_price = EXCLUDED.adjusted_price,
-                            source_url = EXCLUDED.source_url,
-                            source = EXCLUDED.source,
-                            updated_at = EXCLUDED.updated_at
-                    """)
+                    # 批量检查现有记录
+                    phone_list = [record['phone'] for record in batch]
+                    placeholders = ','.join(['%s'] * len(phone_list))
                     
-                    # 准备数据
-                    values = []
+                    check_query = f"""
+                        SELECT phone, price_str, original_price, source_url, source 
+                        FROM phone_numbers 
+                        WHERE phone IN ({placeholders})
+                    """
+                    
+                    cursor.execute(check_query, phone_list)
+                    existing_records = {row[0]: row for row in cursor.fetchall()}
+                    
+                    # 分类处理：新增、更新、跳过
+                    to_insert = []
+                    to_update = []
+                    
                     for record in batch:
-                        values.append((
-                            record['phone'],
-                            record['price_str'],
-                            record['original_price'],
-                            record['adjusted_price'],
-                            record['source_url'],
-                            record['source'],
-                            record['updated_at']
-                        ))
+                        phone = record['phone']
+                        
+                        if phone not in existing_records:
+                            # 新记录，需要插入
+                            to_insert.append(record)
+                        else:
+                            # 记录已存在，检查是否需要更新
+                            existing = existing_records[phone]
+                            existing_phone, existing_price_str, existing_original_price, existing_source_url, existing_source = existing
+                            
+                            # 检查关键字段是否有变化
+                            if (record['price_str'] != existing_price_str or 
+                                record['original_price'] != existing_original_price or
+                                record['source_url'] != existing_source_url or
+                                record['source'] != existing_source):
+                                # 有变化，需要更新
+                                to_update.append(record)
+                            else:
+                                # 完全相同，跳过
+                                skipped_count += 1
                     
-                    # 执行批量插入
+                    # 执行插入操作
+                    if to_insert and not self.dry_run:
+                        insert_query = sql.SQL("""
+                            INSERT INTO phone_numbers 
+                            (phone, price_str, original_price, adjusted_price, source_url, source, updated_at)
+                            VALUES %s
+                        """)
+                        
+                        insert_values = []
+                        for record in to_insert:
+                            insert_values.append((
+                                record['phone'],
+                                record['price_str'],
+                                record['original_price'],
+                                record['adjusted_price'],
+                                record['source_url'],
+                                record['source'],
+                                record['updated_at']
+                            ))
+                        
+                        execute_values(cursor, insert_query, insert_values)
+                        inserted_count += len(to_insert)
+                    
+                    # 执行更新操作
+                    if to_update and not self.dry_run:
+                        for record in to_update:
+                            update_query = sql.SQL("""
+                                UPDATE phone_numbers 
+                                SET price_str = %s, 
+                                    original_price = %s, 
+                                    adjusted_price = %s, 
+                                    source_url = %s, 
+                                    source = %s, 
+                                    updated_at = %s
+                                WHERE phone = %s
+                            """)
+                            
+                            cursor.execute(update_query, (
+                                record['price_str'],
+                                record['original_price'],
+                                record['adjusted_price'],
+                                record['source_url'],
+                                record['source'],
+                                record['updated_at'],
+                                record['phone']
+                            ))
+                        updated_count += len(to_update)
+                    
+                    # 干运行模式统计
                     if self.dry_run:
-                        self.logger.info(f"干运行模式：将插入 {len(values)} 条记录")
-                        continue
-                    
-                    execute_values(cursor, insert_query, values)
-                    total_inserted += len(values)
-                    
-                    if self.dry_run:
-                        continue
+                        inserted_count += len(to_insert)
+                        updated_count += len(to_update)
                 
                 if not self.dry_run:
                     self.postgres_conn.commit()
-                    self.logger.info(f"成功插入/更新 {total_inserted} 条记录到PostgreSQL")
+                    self.logger.info(f"PostgreSQL同步完成: 插入 {inserted_count} 条新记录, 更新 {updated_count} 条记录, 跳过 {skipped_count} 条相同记录")
                 else:
-                    self.logger.info(f"干运行模式：将插入/更新 {len(deduplicated_data)} 条记录到PostgreSQL")
+                    self.logger.info(f"干运行模式: 将插入 {inserted_count} 条新记录, 更新 {updated_count} 条记录, 跳过 {skipped_count} 条相同记录")
                 
                 return True
                 

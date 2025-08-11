@@ -187,14 +187,44 @@ class ExcellentNumbersScraper:
             return
         now = datetime.now(timezone.utc)
         ops = []
+        
         for r in rows:
-            # 注意：这里按你原代码，用 (phone, price) 作为 upsert key，
-            # 但集合索引是 phone 唯一。如果同号不同价，可能命中唯一索引冲突。
-            key = {"phone": r["phone"], "price": r["price"]}
-            doc = {**key, "source_url": source_url, "source": "excellent_number", "crawled_at": now}
-            ops.append(ReplaceOne(key, doc, upsert=True))
-        result = self.col.bulk_write(ops, ordered=False)
-        print(f"[MONGO] upserted={getattr(result, 'upserted_count', 0) or 0}, modified={getattr(result, 'modified_count', 0) or 0}")
+            phone = r["phone"]
+            new_price = r["price"]
+            
+            # 先查询现有记录
+            existing = self.col.find_one({"phone": phone})
+            
+            if existing is None:
+                # 新记录，直接插入
+                doc = {
+                    "phone": phone,
+                    "price": new_price,
+                    "source_url": source_url, 
+                    "source": "excellent_number", 
+                    "crawled_at": now
+                }
+                ops.append(ReplaceOne({"phone": phone}, doc, upsert=True))
+            elif existing.get("price") != new_price:
+                # 价格不同，更新记录
+                doc = {
+                    "phone": phone,
+                    "price": new_price,
+                    "source_url": source_url, 
+                    "source": "excellent_number", 
+                    "crawled_at": now
+                }
+                ops.append(ReplaceOne({"phone": phone}, doc, upsert=True))
+            # 如果价格相同，跳过（不添加到ops中）
+        
+        if ops:
+            result = self.col.bulk_write(ops, ordered=False)
+            upserted = getattr(result, 'upserted_count', 0) or 0
+            modified = getattr(result, 'modified_count', 0) or 0
+            skipped = len(rows) - len(ops)
+            print(f"[MONGO] upserted={upserted}, modified={modified}, skipped={skipped}")
+        else:
+            print(f"[MONGO] skipped={len(rows)} (all records identical)")
 
     # ---------- 抓取主流程 ----------
     async def scrape(self, url: str) -> List[Dict[str, str]]:
