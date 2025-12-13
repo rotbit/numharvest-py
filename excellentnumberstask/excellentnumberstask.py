@@ -165,6 +165,7 @@ class AreaCodeNumbersHarvester:
 
         for idx, (state, code, url) in enumerate(urls, start=1):
             if not history.should_crawl("excellentnumbers", url, freshness_hours=24):
+                print(f"[SKIP] {state} {code} 已在24小时内抓取过: {url}")
                 skipped_recent += 1
                 continue
 

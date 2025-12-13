@@ -362,6 +362,7 @@ class NumberbarnNumberExtractor:
                     url = f"https://www.numberbarn.com/search?type=local&state={state}&npa={npa}&moreResults=true&sort=price%2B&limit=24"
 
                     if history and not history.should_crawl("numberbarn", url, freshness_hours=24):
+                        print(f"[SKIP] {state}-{npa} 已在24小时内抓取过: {url}")
                         skipped_recent += 1
                         continue
 
