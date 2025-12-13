@@ -240,10 +240,22 @@ class NumberHarvestScheduler:
         """并行执行抓取任务，完成后同步数据。"""
         self._with_task_lock(self._execute_main_tasks)
 
+    def run_scrapers_only(self) -> None:
+        """仅并行抓取，不做同步。"""
+        def _task_body() -> None:
+            self.logger.info("开始仅抓取任务（excellentnumbers + numberbarn）")
+            self._run_tasks_in_parallel(self._build_scrape_tasks())
+        self._with_task_lock(_task_body)
+
     def setup_schedule(self) -> None:
-        """设置定时任务调度。"""
-        schedule.every().day.at("08:00").do(self.run_parallel_scraping_and_sync)
-        self.logger.info("定时任务调度设置完成：每天8点执行")
+        """
+        设置定时任务调度：
+        - 每小时执行一次数据同步
+        - 每5天并行执行一次抓取（excellentnumbers + numberbarn）
+        """
+        schedule.every().hour.do(lambda: self.run_single_task("sync"))
+        schedule.every(5).days.do(self.run_scrapers_only)
+        self.logger.info("定时任务调度设置完成：每小时同步，每5天抓取一次")
 
         # 创建健康检查文件
         with open("/tmp/healthcheck", "w") as health_file:
@@ -251,8 +263,12 @@ class NumberHarvestScheduler:
 
     def run_scheduler(self) -> None:
         """运行调度器主循环。"""
+        # 启动后先并行抓取一次，再进入调度
+        self.logger.info("启动后先执行一次并行抓取")
+        self.run_scrapers_only()
+
         self.setup_schedule()
-        self.logger.info("数字收获调度器启动")
+        self.logger.info("数字收获调度器启动（每小时同步，每5天抓取）")
 
         try:
             while True:
