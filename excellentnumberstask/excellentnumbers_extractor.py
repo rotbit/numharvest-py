@@ -285,8 +285,8 @@ if __name__ == "__main__":
     # ✅ 修改为你的 MongoDB 连接信息
     scraper = ExcellentNumbersScraper(
         mongo_host="43.159.58.235",
-        mongo_user="extra_numbers",
-        mongo_password="RsBWd3hTAZeR7kC4",
+        mongo_user="root",
+        mongo_password="pp963470667",
         mongo_port=27017,
         mongo_db="extra_numbers",
         mongo_collection="numbers",

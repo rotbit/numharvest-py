@@ -206,6 +206,35 @@ class NumberHarvestScheduler:
                 self.logger.error("❌ 数据同步失败，总耗时: %.2f秒", duration)
         else:
             self.logger.error("❌ 所有 %d 个抓取任务均失败，跳过数据同步", len(scrape_results))
+    
+    def run_test_flow(self, max_numbers: int = 10) -> None:
+        """测试流程：先excellentnumbers抓10条，再numberbarn抓10条，最后同步。"""
+        def _task_body() -> None:
+            mongo = self.mongo_settings
+            self.logger.info("开始测试抓取 excellentnumbers (最多 %d 条)", max_numbers)
+            excel_result = AreaCodeNumbersHarvester(
+                mongo_host=mongo.host,
+                mongo_user=mongo.user,
+                mongo_password=mongo.password,
+                mongo_port=mongo.port,
+                mongo_db=mongo.db,
+                mongo_collection=mongo.collection,
+                headless=True,
+            ).run(max_numbers=max_numbers)
+            self.logger.info("excellentnumbers 抓取完成: %s", excel_result)
+
+            self.logger.info("开始测试抓取 numberbarn (最多 %d 条)", max_numbers)
+            nb_result = NumberbarnNumberExtractor(
+                mongo_host=mongo.host,
+                mongo_password=mongo.password,
+                mongo_db=mongo.db,
+            ).run(max_numbers=max_numbers)
+            self.logger.info("numberbarn 抓取完成，数量: %d", len(nb_result) if nb_result else 0)
+
+            self.logger.info("开始执行数据同步")
+            self._run_task(self._build_sync_task())
+
+        self._with_task_lock(_task_body)
 
     def run_parallel_scraping_and_sync(self) -> None:
         """并行执行抓取任务，完成后同步数据。"""
@@ -298,7 +327,7 @@ def main() -> None:
         scheduler.run_parallel_scraping_and_sync()
         scheduler.run_scheduler()
     elif command == "--test":
-        scheduler.run_parallel_scraping_and_sync()
+        scheduler.run_test_flow(max_numbers=1)
     elif command == "--excellentnumbers":
         scheduler.run_single_task("excellentnumbers")
     elif command == "--numberbarn":

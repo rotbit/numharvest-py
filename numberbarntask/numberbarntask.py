@@ -211,7 +211,7 @@ class NumberbarnNumberExtractor:
             print(f"  MongoDB保存失败: {e}")
             return False
 
-    async def extract_numbers_from_url(self, page, url: str, state: str, npa: str) -> List[Dict]:
+    async def extract_numbers_from_url(self, page, url: str, state: str, npa: str, max_numbers: int | None = None) -> List[Dict]:
         """从指定 URL 提取号码与价格，分页上限 10 页。"""
         all_numbers: List[Dict] = []
         page_number = 1
@@ -224,6 +224,9 @@ class NumberbarnNumberExtractor:
             while page_number <= max_pages:
                 current_numbers = await self._scrape_current_page(page, state, npa, page_number)
                 all_numbers.extend(current_numbers)
+                if max_numbers and len(all_numbers) >= max_numbers:
+                    print(f"  达到 max_numbers={max_numbers}，提前结束该组合")
+                    break
                 if not current_numbers or not await self._goto_next_page(page, page_number):
                     break
                 page_number += 1
@@ -334,7 +337,7 @@ class NumberbarnNumberExtractor:
                 await browser.close()
         
         return all_numbers
-    async def extract_from_combinations(self, combinations: List[Dict]) -> List[Dict]:
+    async def extract_from_combinations(self, combinations: List[Dict], max_numbers: int | None = None) -> List[Dict]:
         """从给定的state-npa组合列表提取号码数据"""
         all_numbers = []
 
@@ -352,13 +355,16 @@ class NumberbarnNumberExtractor:
                     url = f"https://www.numberbarn.com/search?type=local&state={state}&npa={npa}&moreResults=true&sort=price%2B&limit=24"
 
                     try:
-                        numbers = await self.extract_numbers_from_url(page, url, state, npa)
+                        numbers = await self.extract_numbers_from_url(page, url, state, npa, max_numbers=max_numbers)
 
                         if numbers:
                             all_numbers.extend(numbers)
                             print(f"  完成: 提取到 {len(numbers)} 个号码")
                         else:
                             print(f"  完成: 没有找到号码")
+                        if max_numbers and len(all_numbers) >= max_numbers:
+                            print(f"已累计 {len(all_numbers)} 个号码，达到上限，停止后续组合")
+                            return all_numbers
 
                     except Exception as e:
                         print(f"  处理时出错: {e}")
@@ -374,13 +380,13 @@ class NumberbarnNumberExtractor:
 
         return all_numbers
 
-    def run(self) -> List[Dict]:
-        """主函数，对外提供run接口"""
+    def run(self, max_numbers: int | None = None) -> List[Dict]:
+        """主函数，对外提供run接口，可限定最大号码数"""
         combinations = self.load_combinations()
 
         if combinations:
             print(f"提取 {len(combinations)} 个 state-npa 组合")
-            return asyncio.run(self.extract_from_combinations(combinations))
+            return asyncio.run(self.extract_from_combinations(combinations, max_numbers=max_numbers))
         else:
             print("未找到有效的组合数据")
             return []

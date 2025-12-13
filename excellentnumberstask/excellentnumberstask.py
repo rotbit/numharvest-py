@@ -102,7 +102,12 @@ class AreaCodeNumbersHarvester:
         time.sleep(base + jitter)
 
     # ---------------- 主流程 ----------------
-    def run(self, index_path_or_dir: Optional[str] = None, limit: Optional[int] = None) -> Dict:
+    def run(
+        self,
+        index_path_or_dir: Optional[str] = None,
+        limit: Optional[int] = None,
+        max_numbers: Optional[int] = None,
+    ) -> Dict:
         # 先检查索引文件是否存在，如果不存在则生成
         base_dir = index_path_or_dir if (index_path_or_dir and os.path.isdir(index_path_or_dir)) else "."
         fallback = os.path.join(base_dir, DEFAULT_INDEX_LATEST)
@@ -164,6 +169,10 @@ class AreaCodeNumbersHarvester:
             else:
                 failures += 1
 
+            if max_numbers and total_numbers >= max_numbers:
+                print(f"[STOP] Reached max_numbers={max_numbers}, early exit.")
+                break
+
             self._human_pause(idx)
 
         elapsed = round(time.time() - start_ts, 2)
@@ -182,8 +191,8 @@ class AreaCodeNumbersHarvester:
 if __name__ == "__main__":
     job = AreaCodeNumbersHarvester(
         mongo_host="43.159.58.235",
-        mongo_user="extra_numbers",
-        mongo_password="RsBWd3hTAZeR7kC4",
+        mongo_user="root",
+        mongo_password="pp963470667",
         mongo_port=27017,
         mongo_db="extra_numbers",
         mongo_collection="numbers",

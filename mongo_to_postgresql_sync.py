@@ -243,33 +243,49 @@ class MongoToPostgreSQLSync:
             url = doc.get("source_url", "")
             source = doc.get("source", "excellent_number")
             country = doc.get("country", "USA")
-            region = doc.get("region", "")
+            region = doc.get("region") or self._infer_region(url, collection_name)
         elif collection_name == "numberbarn_numbers":
             phone = doc.get("number", "")
             price = doc.get("price", "")
             url = doc.get("source_url", "")
             source = "numberbarn"
             country = doc.get("country", "USA")
-            region = doc.get("state", "")
+            region = doc.get("state") or self._infer_region(url, collection_name)
         else:
             phone = doc.get("phone", doc.get("number", ""))
             price = doc.get("price", "")
             url = doc.get("source_url", doc.get("url", ""))
             source = doc.get("source", collection_name)
             country = doc.get("country", "USA")
-            region = doc.get("region", "")
+            region = doc.get("region") or self._infer_region(url, collection_name)
         return phone, price, url, source, country, region
 
     def _split_phone(self, phone: str) -> tuple[str, str]:
-        """将原始号码拆为国家码和本机号；默认美国1。"""
-        digits = re.sub(r"\\D", "", phone)
+        """将原始号码拆为国家码和本机号；去除括号等符号，默认美国1。"""
+        digits = re.sub(r"\D", "", phone or "")
+        if len(digits) > 10:
+            return digits[:-10], digits[-10:]
         if len(digits) == 11 and digits.startswith("1"):
             return "1", digits[1:]
-        if len(digits) > 11:
-            return digits[:-10], digits[-10:]
         if len(digits) == 10:
             return "1", digits
         return "1", digits  # fallback
+
+    def _infer_region(self, url: str, collection_name: str) -> str:
+        """从 URL 提取州/地区：excellentnumbers 用路径，numberbarn 用 state 参数。"""
+        if not url:
+            return ""
+        try:
+            if collection_name == "numbers":
+                m = re.search(r"/categories/([^/]+)/", url)
+                if m:
+                    return m.group(1)
+            m = re.search(r"[?&]state=([^&]+)", url)
+            if m:
+                return m.group(1)
+        except Exception:
+            return ""
+        return ""
 
     def insert_to_postgresql(self, data: List[Dict]) -> bool:
         """将数据插入PostgreSQL，拆分小步骤以便维护。"""
@@ -308,23 +324,27 @@ class MongoToPostgreSQLSync:
 
         except DatabaseError as e:
             self.postgres_conn.rollback()
-            self.logger.error(f"插入PostgreSQL失败: {e}")
+            # 打印具体错误栈，便于定位插入失败原因
+            self.logger.exception("插入PostgreSQL失败: %s", e)
             return False
         except Exception as e:
             self.postgres_conn.rollback()
-            self.logger.error(f"插入PostgreSQL时发生错误: {e}")
+            # 捕获未知异常并打印详细栈
+            self.logger.exception("插入PostgreSQL时发生错误: %s", e)
             return False
 
     # -------- Helper methods for PostgreSQL upsert pipeline --------
     def _deduplicate_input(self, data: List[Dict]) -> List[Dict]:
-        """对输入列表按 phone 去重，保留最新 updated_at 的记录。"""
+        """对输入列表按 country_code+national_number 去重，保留最新 updated_at 的记录。"""
         unique: Dict[str, Dict] = {}
         for record in data:
-            phone = record.get("phone")
-            if not phone:
+            cc = record.get("country_code")
+            num = record.get("national_number")
+            if not cc or not num:
                 continue
-            if phone not in unique or record["updated_at"] > unique[phone]["updated_at"]:
-                unique[phone] = record
+            key = f"{cc}:{num}"
+            if key not in unique or record["updated_at"] > unique[key]["updated_at"]:
+                unique[key] = record
         if len(unique) < len(data):
             self.logger.info("输入数据去重: %d -> %d 条记录", len(data), len(unique))
         return list(unique.values())
@@ -423,42 +443,30 @@ class MongoToPostgreSQLSync:
             self.logger.info("PostgreSQL连接已关闭")
             
     def sync_collection(self, collection_name: str) -> bool:
-        """按天同步单个集合的数据，逐日跑到今天"""
+        """仅同步当天数据，避免长周期扫描"""
         self.logger.info(f"开始同步集合: {collection_name}")
 
-        # 从5个月前开始逐日同步（约150天），避免一次性大查询
         today_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        start_date = today_utc - timedelta(days=150)
+        mongo_data = self.get_today_mongo_data(collection_name, today_utc)
+        if not mongo_data:
+            self.logger.info(f"{collection_name} 今日无数据，跳过")
+            return True
+
+        normalized_data = self.normalize_mongo_data(mongo_data, collection_name)
+        if not normalized_data:
+            self.logger.info(f"{collection_name} 今日标准化后无有效数据，跳过")
+            return True
 
         total_records = 0
+        for i in range(0, len(normalized_data), self.batch_size):
+            batch = normalized_data[i:i + self.batch_size]
+            if self.insert_to_postgresql(batch):
+                total_records += len(batch)
+            else:
+                self.logger.error(f"{collection_name} 今日批次 {i//self.batch_size + 1} 插入失败")
+                return False
 
-        current_date = start_date
-        while current_date <= today_utc:
-            mongo_data = self.get_today_mongo_data(collection_name, current_date)
-            if not mongo_data:
-                self.logger.info(f"{collection_name} {current_date.date()} 无数据，跳过")
-                current_date += timedelta(days=1)
-                continue
-
-            normalized_data = self.normalize_mongo_data(mongo_data, collection_name)
-            if not normalized_data:
-                self.logger.info(f"{collection_name} {current_date.date()} 标准化后无有效数据，跳过")
-                current_date += timedelta(days=1)
-                continue
-
-            # 分批插入PostgreSQL
-            for i in range(0, len(normalized_data), self.batch_size):
-                batch = normalized_data[i:i + self.batch_size]
-                if self.insert_to_postgresql(batch):
-                    total_records += len(batch)
-                else:
-                    self.logger.error(f"{collection_name} {current_date.date()} 批次 {i//self.batch_size + 1} 插入失败")
-                    return False
-
-            self.logger.info(f"{collection_name} {current_date.date()} 同步完成，处理 {len(normalized_data)} 条记录")
-            current_date += timedelta(days=1)
-
-        self.logger.info(f"集合 {collection_name} 同步完成，最近约5个月共处理 {total_records} 条记录")
+        self.logger.info(f"{collection_name} 今日同步完成，处理 {total_records} 条记录")
         return True
     def sync_all_collections(self) -> bool:
         """同步所有集合的数据"""
