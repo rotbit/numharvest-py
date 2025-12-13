@@ -3,8 +3,8 @@ import os, json, time, glob, random
 from typing import Dict, Iterable, Tuple, Optional
 
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
-from excellentnumbers_extractor import ExcellentNumbersScraper
-from excellentnumbers_state_area import StateAreaCodeScraper  # 引入 StateAreaCodeScraper
+from .excellentnumbers_extractor import ExcellentNumbersScraper
+from .excellentnumbers_state_area import StateAreaCodeScraper  # 引入 StateAreaCodeScraper
 
 DEFAULT_INDEX_LATEST = "/tmp/excellentnumbers_state_area_codes.json"
 DEFAULT_INDEX_GLOB   = "/tmp/excellentnumbers_state_area_codes_*.json"
@@ -13,8 +13,8 @@ class AreaCodeNumbersHarvester:
     def __init__(
         self,
         mongo_host: str,
-        mongo_user: str = "",
-        mongo_password: str = "",
+        mongo_user: str = "root",
+        mongo_password: str = "pp963470667",
         mongo_port: int = 27017,
         mongo_db: str = "extra_numbers",
         mongo_collection: str = "numbers",

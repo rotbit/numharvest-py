@@ -15,8 +15,8 @@ def _env_int(name: str, default: int) -> int:
 @dataclass(frozen=True)
 class MongoSettings:
     host: str = field(default_factory=lambda: os.getenv("MONGO_HOST", "43.159.58.235"))
-    user: str = field(default_factory=lambda: os.getenv("MONGO_USER", "extra_numbers"))
-    password: str = field(default_factory=lambda: os.getenv("MONGO_PASSWORD", "RsBWd3hTAZeR7kC4"))
+    user: str = field(default_factory=lambda: os.getenv("MONGO_USER", "root"))
+    password: str = field(default_factory=lambda: os.getenv("MONGO_PASSWORD", "pp963470667"))
     port: int = field(default_factory=lambda: _env_int("MONGO_PORT", 27017))
     db: str = field(default_factory=lambda: os.getenv("MONGO_DB", "extra_numbers"))
     collection: str = field(default_factory=lambda: os.getenv("MONGO_COLLECTION", "numbers"))
@@ -26,9 +26,9 @@ class MongoSettings:
 
 
 @dataclass(frozen=True)
-class MysqlSettings:
-    host: str = field(default_factory=lambda: os.getenv("MYSQL_HOST", "43.159.58.235"))
-    port: int = field(default_factory=lambda: _env_int("MYSQL_PORT", 3306))
-    db: str = field(default_factory=lambda: os.getenv("MYSQL_DB", "numbers"))
-    user: str = field(default_factory=lambda: os.getenv("MYSQL_USER", "root"))
-    password: str = field(default_factory=lambda: os.getenv("MYSQL_PASSWORD", "axad3M3MJN57NWzr"))
+class PostgresSettings:
+    host: str = field(default_factory=lambda: os.getenv("POSTGRES_HOST", os.getenv("PGHOST", "43.159.58.235")))
+    port: int = field(default_factory=lambda: _env_int("POSTGRES_PORT", _env_int("PGPORT", 4088)))
+    db: str = field(default_factory=lambda: os.getenv("POSTGRES_DB", os.getenv("PGDATABASE", "numharvest")))
+    user: str = field(default_factory=lambda: os.getenv("POSTGRES_USER", os.getenv("PGUSER", "numharvest")))
+    password: str = field(default_factory=lambda: os.getenv("POSTGRES_PASSWORD", os.getenv("PGPASSWORD", "pP963470667")))

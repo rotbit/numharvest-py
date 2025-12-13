@@ -1,30 +1,31 @@
 import asyncio
+import logging
 import re
 import sys
-import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-import mysql.connector
-from mysql.connector import Error as MySQLError
+import psycopg2
+from psycopg2 import DatabaseError, sql
+from psycopg2.extras import execute_values
 from pymongo import MongoClient
 
 
-class MongoToMySQLSync:
-    """MongoDB到MySQL数据同步器"""
+class MongoToPostgreSQLSync:
+    """MongoDB到PostgreSQL数据同步器"""
     
     def __init__(self, 
                  mongo_host: str = "43.159.58.235",
-                 mongo_user: str = "extra_numbers",
-                 mongo_password: str = "RsBWd3hTAZeR7kC4",
+                 mongo_user: str = "root",
+                 mongo_password: str = "pp963470667",
                  mongo_port: int = 27017,
                  mongo_db: str = "extra_numbers",
                  
-                 mysql_host: str = "localhost",
-                 mysql_port: int = 3306,
-                 mysql_db: str = "phone_numbers_db",
-                 mysql_user: str = "root",
-                 mysql_password: str = "",
+                 postgres_host: str = "43.159.58.235",
+                 postgres_port: int = 4088,
+                 postgres_db: str = "numharvest",
+                 postgres_user: str = "numharvest",
+                 postgres_password: str = "pP963470667",
                  
                  batch_size: int = 1000,
                  dry_run: bool = False):
@@ -36,12 +37,12 @@ class MongoToMySQLSync:
         self.mongo_port = mongo_port
         self.mongo_db = mongo_db
         
-        # MySQL配置
-        self.mysql_host = mysql_host
-        self.mysql_port = mysql_port
-        self.mysql_db = mysql_db
-        self.mysql_user = mysql_user
-        self.mysql_password = mysql_password
+        # PostgreSQL配置
+        self.postgres_host = postgres_host
+        self.postgres_port = postgres_port
+        self.postgres_db = postgres_db
+        self.postgres_user = postgres_user
+        self.postgres_password = postgres_password
         
         # 同步配置
         self.batch_size = batch_size
@@ -49,7 +50,7 @@ class MongoToMySQLSync:
         
         # 初始化连接
         self.mongo_client = None
-        self.mysql_conn = None
+        self.postgres_conn = None
         
         # 设置日志
         self.setup_logging()
@@ -95,7 +96,10 @@ class MongoToMySQLSync:
     def connect_mongodb(self) -> bool:
         """连接MongoDB"""
         try:
-            connection_string = f"mongodb://{self.mongo_user}:{self.mongo_password}@{self.mongo_host}:{self.mongo_port}/?authSource=extra_numbers"
+            connection_string = (
+                f"mongodb://{self.mongo_user}:{self.mongo_password}"
+                f"@{self.mongo_host}:{self.mongo_port}/?authSource=admin"
+            )
             self.mongo_client = MongoClient(connection_string)
             
             # 测试连接
@@ -107,24 +111,22 @@ class MongoToMySQLSync:
             self.logger.error(f"MongoDB连接失败: {e}")
             return False
     
-    def connect_mysql(self) -> bool:
-        """连接MySQL"""
+    def connect_postgresql(self) -> bool:
+        """连接PostgreSQL"""
         try:
-            self.mysql_conn = mysql.connector.connect(
-                host=self.mysql_host,
-                port=self.mysql_port,
-                database=self.mysql_db,
-                user=self.mysql_user,
-                password=self.mysql_password,
-                autocommit=False,
+            self.postgres_conn = psycopg2.connect(
+                host=self.postgres_host,
+                port=self.postgres_port,
+                dbname=self.postgres_db,
+                user=self.postgres_user,
+                password=self.postgres_password,
             )
-            cur = self.mysql_conn.cursor()
-            cur.execute("SELECT 1")
-            cur.close()
-            self.logger.info("成功连接到 MySQL: %s:%s", self.mysql_host, self.mysql_port)
+            with self.postgres_conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            self.logger.info("成功连接到 PostgreSQL: %s:%s", self.postgres_host, self.postgres_port)
             return True
-        except MySQLError as e:
-            self.logger.error("MySQL连接失败: %s", e)
+        except DatabaseError as e:
+            self.logger.error("PostgreSQL连接失败: %s", e)
             return False
     
     def get_mongodb_collections(self) -> List[str]:
@@ -269,13 +271,13 @@ class MongoToMySQLSync:
             return "1", digits
         return "1", digits  # fallback
 
-    def insert_to_mysql(self, data: List[Dict]) -> bool:
-        """将数据插入MySQL，拆分小步骤以便维护。"""
+    def insert_to_postgresql(self, data: List[Dict]) -> bool:
+        """将数据插入PostgreSQL，拆分小步骤以便维护。"""
         if not data:
             return True
 
         try:
-            with self.mysql_conn.cursor() as cursor:
+            with self.postgres_conn.cursor() as cursor:
                 unique_data = self._deduplicate_input(data)
                 stats = {"inserted": 0, "updated": 0, "skipped": 0}
 
@@ -292,7 +294,7 @@ class MongoToMySQLSync:
                     stats["updated"] += len(to_update)
 
                 if not self.dry_run:
-                    self.mysql_conn.commit()
+                    self.postgres_conn.commit()
 
                 mode = "干运行" if self.dry_run else "实际同步"
                 self.logger.info(
@@ -304,16 +306,16 @@ class MongoToMySQLSync:
                 )
                 return True
 
-        except MySQLError as e:
-            self.mysql_conn.rollback()
-            self.logger.error(f"插入MySQL失败: {e}")
+        except DatabaseError as e:
+            self.postgres_conn.rollback()
+            self.logger.error(f"插入PostgreSQL失败: {e}")
             return False
         except Exception as e:
-            self.mysql_conn.rollback()
-            self.logger.error(f"插入MySQL时发生错误: {e}")
+            self.postgres_conn.rollback()
+            self.logger.error(f"插入PostgreSQL时发生错误: {e}")
             return False
 
-    # -------- Helper methods for MySQL upsert pipeline --------
+    # -------- Helper methods for PostgreSQL upsert pipeline --------
     def _deduplicate_input(self, data: List[Dict]) -> List[Dict]:
         """对输入列表按 phone 去重，保留最新 updated_at 的记录。"""
         unique: Dict[str, Dict] = {}
@@ -333,16 +335,16 @@ class MongoToMySQLSync:
             yield data[i : i + self.batch_size]
 
     def _fetch_existing_records(self, cursor, batch: List[Dict]) -> Dict[str, tuple]:
-        """一次查询批次中已有的号码记录，键为 country_code+national_number。"""
+        """一次查询批次中已有的号码记录，键为 country_code:national_number。"""
         keys = [(r["country_code"], r["national_number"]) for r in batch]
-        placeholders = ",".join(["(%s,%s)"] * len(keys))
-        flat_params = [item for pair in keys for item in pair]
-        query = f"""
-            SELECT country_code, national_number, price_str, original_price, source_url, source 
-            FROM phone_numbers 
-            WHERE (country_code, national_number) IN ({placeholders})
-        """
-        cursor.execute(query, flat_params)
+        cursor.execute(
+            """
+            SELECT country_code, national_number, price_str, original_price, source_url, source
+            FROM phone_numbers
+            WHERE (country_code, national_number) = ANY(%s)
+            """,
+            (keys,),
+        )
         return {f"{row[0]}:{row[1]}": row for row in cursor.fetchall()}
 
     def _classify_records(
@@ -372,24 +374,24 @@ class MongoToMySQLSync:
         return to_insert, to_update, skipped
 
     def _insert_batch(self, cursor, records: List[Dict]) -> None:
-        """批量插入新记录，使用 ON DUPLICATE KEY 更新。"""
+        """批量插入新记录，使用 ON CONFLICT upsert。"""
         if not records:
             return
         query = """
             INSERT INTO phone_numbers
             (country_code, national_number, country, region, price_str, original_price, adjusted_price, source_url, source, updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON DUPLICATE KEY UPDATE
-                country = VALUES(country),
-                region = VALUES(region),
-                price_str = VALUES(price_str),
-                original_price = VALUES(original_price),
-                adjusted_price = VALUES(adjusted_price),
-                source_url = VALUES(source_url),
-                source = VALUES(source),
-                updated_at = VALUES(updated_at)
+            VALUES %s
+            ON CONFLICT (country_code, national_number) DO UPDATE SET
+                country = EXCLUDED.country,
+                region = EXCLUDED.region,
+                price_str = EXCLUDED.price_str,
+                original_price = EXCLUDED.original_price,
+                adjusted_price = EXCLUDED.adjusted_price,
+                source_url = EXCLUDED.source_url,
+                source = EXCLUDED.source,
+                updated_at = EXCLUDED.updated_at
         """
-        params = [
+        values = [
             (
                 r["country_code"],
                 r["national_number"],
@@ -404,10 +406,10 @@ class MongoToMySQLSync:
             )
             for r in records
         ]
-        cursor.executemany(query, params)
+        execute_values(cursor, query, values)
 
     def _update_batch(self, cursor, records: List[Dict]) -> None:
-        """兼容接口；MySQL 插入已用 upsert，这里留空即可。"""
+        """兼容接口；PostgreSQL 已在 insert 中 upsert，这里留空。"""
         return
 
     def close_connections(self):
@@ -416,9 +418,9 @@ class MongoToMySQLSync:
             self.mongo_client.close()
             self.logger.info("MongoDB连接已关闭")
         
-        if self.mysql_conn:
-            self.mysql_conn.close()
-            self.logger.info("MySQL连接已关闭")
+        if self.postgres_conn:
+            self.postgres_conn.close()
+            self.logger.info("PostgreSQL连接已关闭")
             
     def sync_collection(self, collection_name: str) -> bool:
         """按天同步单个集合的数据，逐日跑到今天"""
@@ -483,14 +485,14 @@ class MongoToMySQLSync:
     
     def run(self) -> bool:
         """执行同步任务"""
-        self.logger.info("开始执行MongoDB到MySQL同步任务")
+        self.logger.info("开始执行MongoDB到PostgreSQL同步任务")
         
         try:
             # 连接数据库
             if not self.connect_mongodb():
                 return False
             
-            if not self.connect_mysql():
+            if not self.connect_postgresql():
                 return False
             
             # 执行同步
@@ -505,7 +507,7 @@ class MongoToMySQLSync:
 
 async def main():
     """主函数"""
-    sync = MongoToMySQLSync(
+    sync = MongoToPostgreSQLSync(
         # MongoDB配置
         mongo_host="43.159.58.235",
         mongo_user="extra_numbers",
@@ -513,12 +515,12 @@ async def main():
         mongo_port=27017,
         mongo_db="extra_numbers",
         
-        # MySQL配置（请根据实际情况修改）
-        mysql_host="43.159.58.235",
-        mysql_port=3306,
-        mysql_db="numbers",
-        mysql_user="root",
-        mysql_password="axad3M3MJN57NWzr",
+        # PostgreSQL配置（请根据实际情况修改）
+        postgres_host="43.159.58.235",
+        postgres_port=4088,
+        postgres_db="numharvest",
+        postgres_user="numharvest",
+        postgres_password="pP963470667",
         
         # 同步配置
         batch_size=1000,  # 批量处理的大小

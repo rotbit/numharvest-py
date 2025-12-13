@@ -16,9 +16,9 @@ from typing import Any, Callable, Dict, List
 import schedule
 
 from excellentnumberstask import AreaCodeNumbersHarvester
-from mongo_to_postgresql_sync import MongoToMySQLSync
+from mongo_to_postgresql_sync import MongoToPostgreSQLSync
 from numberbarntask import NumberbarnNumberExtractor
-from settings import MongoSettings, MysqlSettings
+from settings import MongoSettings, PostgresSettings
 from task_lock import HeartbeatManager, TaskLock
 
 # 配置日志
@@ -56,7 +56,7 @@ class NumberHarvestScheduler:
         )
 
         self.mongo_settings = MongoSettings()
-        self.mysql_settings = MysqlSettings()
+        self.postgres_settings = PostgresSettings()
         self.scrape_timeout_seconds = 3600
 
     def _build_scrape_tasks(self) -> List[TaskDefinition]:
@@ -92,21 +92,21 @@ class NumberHarvestScheduler:
     def _build_sync_task(self) -> TaskDefinition:
         """构建数据同步任务。"""
         mongo = self.mongo_settings
-        mysql = self.mysql_settings
+        postgres = self.postgres_settings
         return TaskDefinition(
             key="sync",
             label="数据同步",
-            runner=lambda: MongoToMySQLSync(
+            runner=lambda: MongoToPostgreSQLSync(
                 mongo_host=mongo.host,
                 mongo_user=mongo.user,
                 mongo_password=mongo.password,
                 mongo_port=mongo.port,
                 mongo_db=mongo.db,
-                mysql_host=mysql.host,
-                mysql_port=mysql.port,
-                mysql_db=mysql.db,
-                mysql_user=mysql.user,
-                mysql_password=mysql.password,
+                postgres_host=postgres.host,
+                postgres_port=postgres.port,
+                postgres_db=postgres.db,
+                postgres_user=postgres.user,
+                postgres_password=postgres.password,
                 batch_size=1000,
                 dry_run=False,
             ).run(),

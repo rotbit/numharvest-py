@@ -1,0 +1,236 @@
+2025-12-13 20:16:06,333 - INFO - 获取任务锁成功 (PID: 48791)
+2025-12-13 20:16:06,333 - INFO - 开始执行数据同步任务
+2025-12-13 20:16:06,334 - INFO - 开始执行MongoDB到PostgreSQL同步任务
+2025-12-13 20:16:08,091 - ERROR - MongoDB连接失败: Authentication failed., full error: {'ok': 0.0, 'errmsg': 'Authentication failed.', 'code': 18, 'codeName': 'AuthenticationFailed'}
+2025-12-13 20:16:08,093 - INFO - MongoDB连接已关闭
+2025-12-13 20:16:08,094 - INFO - 数据同步任务完成，耗时: 1.76秒
+2025-12-13 20:16:08,096 - INFO - ✅ 单独执行sync任务结果: 数据同步任务成功完成
+2025-12-13 20:22:16,463 - INFO - 获取任务锁成功 (PID: 49802)
+2025-12-13 20:22:16,464 - INFO - 开始执行数据同步任务
+2025-12-13 20:22:16,464 - INFO - 开始执行MongoDB到PostgreSQL同步任务
+2025-12-13 20:22:16,836 - ERROR - MongoDB连接失败: Authentication failed., full error: {'ok': 0.0, 'errmsg': 'Authentication failed.', 'code': 18, 'codeName': 'AuthenticationFailed'}
+2025-12-13 20:22:16,837 - INFO - MongoDB连接已关闭
+2025-12-13 20:22:16,838 - INFO - 数据同步任务完成，耗时: 0.37秒
+2025-12-13 20:22:16,839 - INFO - ✅ 单独执行sync任务结果: 数据同步任务成功完成
+2025-12-13 20:24:09,407 - INFO - 获取任务锁成功 (PID: 51199)
+2025-12-13 20:24:09,407 - INFO - 开始执行数据同步任务
+2025-12-13 20:24:09,408 - INFO - 开始执行MongoDB到PostgreSQL同步任务
+2025-12-13 20:24:09,798 - INFO - 成功连接到MongoDB: 43.159.58.235:27017
+2025-12-13 20:24:10,321 - INFO - 成功连接到 PostgreSQL: 43.159.58.235:4088
+2025-12-13 20:24:10,321 - INFO - 开始同步所有集合的数据
+2025-12-13 20:24:10,608 - WARNING - 未找到包含电话号码数据的集合，使用所有集合
+2025-12-13 20:24:10,608 - INFO - 找到 0 个集合: []
+2025-12-13 20:24:10,608 - ERROR - 没有找到任何MongoDB集合
+2025-12-13 20:24:10,934 - INFO - MongoDB连接已关闭
+2025-12-13 20:24:10,934 - INFO - PostgreSQL连接已关闭
+2025-12-13 20:24:10,934 - INFO - 数据同步任务完成，耗时: 1.53秒
+2025-12-13 20:24:10,935 - INFO - ✅ 单独执行sync任务结果: 数据同步任务成功完成
+2025-12-13 20:25:23,428 - INFO - 获取任务锁成功 (PID: 51332)
+2025-12-13 20:25:23,428 - INFO - 开始执行numberbarn任务
+2025-12-13 20:25:26,072 - ERROR - 执行numberbarn任务时出错: BrowserType.launch: Executable doesn't exist at /Users/te/Library/Caches/ms-playwright/chromium_headless_shell-1181/chrome-mac/headless_shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     playwright install                                     ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+Traceback (most recent call last):
+  File "/Users/te/Documents/workspace/numharvest/main.py", line 128, in _run_task
+    result = task.runner()
+  File "/Users/te/Documents/workspace/numharvest/main.py", line 87, in <lambda>
+    ).run(),
+      ~~~^^
+  File "/Users/te/Documents/workspace/numharvest/numberbarntask/numberbarntask.py", line 383, in run
+    return asyncio.run(self.extract_from_combinations(combinations))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/te/Documents/workspace/numharvest/numberbarntask/numberbarntask.py", line 342, in extract_from_combinations
+    browser = await p.chromium.launch(headless=True)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/playwright/async_api/_generated.py", line 14457, in launch
+    await self._impl_obj.launch(
+    ...<17 lines>...
+    )
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_browser_type.py", line 98, in launch
+    await self._channel.send(
+        "launch", TimeoutSettings.launch_timeout, params
+    )
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_connection.py", line 558, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.Error: BrowserType.launch: Executable doesn't exist at /Users/te/Library/Caches/ms-playwright/chromium_headless_shell-1181/chrome-mac/headless_shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     playwright install                                     ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+2025-12-13 20:25:26,074 - INFO - ❌ 单独执行numberbarn任务结果: 执行numberbarn任务时出错: BrowserType.launch: Executable doesn't exist at /Users/te/Library/Caches/ms-playwright/chromium_headless_shell-1181/chrome-mac/headless_shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     playwright install                                     ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+2025-12-13 20:28:08,025 - INFO - 获取任务锁成功 (PID: 51643)
+2025-12-13 20:28:08,025 - INFO - 开始执行numberbarn任务
+2025-12-13 20:28:56,479 - ERROR - 执行numberbarn任务时出错: Browser.close: Connection closed while reading from the driver
+Traceback (most recent call last):
+  File "/Users/te/Documents/workspace/numharvest/main.py", line 128, in _run_task
+    result = task.runner()
+  File "/Users/te/Documents/workspace/numharvest/main.py", line 87, in <lambda>
+    ).run(),
+      ~~~^^
+  File "/Users/te/Documents/workspace/numharvest/numberbarntask/numberbarntask.py", line 383, in run
+    return asyncio.run(self.extract_from_combinations(combinations))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/te/Documents/workspace/numharvest/numberbarntask/numberbarntask.py", line 373, in extract_from_combinations
+    await browser.close()
+  File "/usr/local/lib/python3.13/site-packages/playwright/async_api/_generated.py", line 14226, in close
+    return mapping.from_maybe_impl(await self._impl_obj.close(reason=reason))
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_browser.py", line 241, in close
+    raise e
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_browser.py", line 238, in close
+    await self._channel.send("close", None, {"reason": reason})
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_connection.py", line 558, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+Exception: Browser.close: Connection closed while reading from the driver
+2025-12-13 20:28:56,482 - INFO - ❌ 单独执行numberbarn任务结果: 执行numberbarn任务时出错: Browser.close: Connection closed while reading from the driver
+2025-12-13 20:28:56,794 - ERROR - Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed
+2025-12-13 20:29:52,637 - INFO - 获取任务锁成功 (PID: 52627)
+2025-12-13 20:29:52,637 - INFO - 开始执行数据抓取和同步任务
+2025-12-13 20:29:52,637 - INFO - 开始执行excellentnumbers任务
+2025-12-13 20:29:52,637 - INFO - 开始执行numberbarn任务
+2025-12-13 20:30:39,509 - ERROR - 执行numberbarn任务时出错: Page.wait_for_timeout: Target page, context or browser has been closed
+Traceback (most recent call last):
+  File "/Users/te/Documents/workspace/numharvest/main.py", line 128, in _run_task
+    result = task.runner()
+  File "/Users/te/Documents/workspace/numharvest/main.py", line 87, in <lambda>
+    ).run(),
+      ~~~^^
+  File "/Users/te/Documents/workspace/numharvest/numberbarntask/numberbarntask.py", line 383, in run
+    return asyncio.run(self.extract_from_combinations(combinations))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/te/Documents/workspace/numharvest/numberbarntask/numberbarntask.py", line 366, in extract_from_combinations
+    await page.wait_for_timeout(2000)
+  File "/usr/local/lib/python3.13/site-packages/playwright/async_api/_generated.py", line 11413, in wait_for_timeout
+    await self._impl_obj.wait_for_timeout(timeout=timeout)
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_page.py", line 1102, in wait_for_timeout
+    await self._main_frame.wait_for_timeout(timeout)
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_frame.py", line 844, in wait_for_timeout
+    await self._channel.send("waitForTimeout", None, {"waitTimeout": timeout})
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_connection.py", line 558, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TargetClosedError: Page.wait_for_timeout: Target page, context or browser has been closed
+2025-12-13 20:30:39,611 - ERROR - 执行excellentnumbers任务时出错: 无法生成索引文件: Locator.get_attribute: Connection closed while reading from the driver
+Traceback (most recent call last):
+  File "/Users/te/Documents/workspace/numharvest/excellentnumberstask/excellentnumberstask.py", line 120, in run
+    scraper.run()  # 执行抓取操作
+    ~~~~~~~~~~~^^
+  File "/Users/te/Documents/workspace/numharvest/excellentnumberstask/excellentnumbers_state_area.py", line 95, in run
+    data = asyncio.run(self.scrape(url))
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/te/Documents/workspace/numharvest/excellentnumberstask/excellentnumbers_state_area.py", line 65, in scrape
+    for link in await self._links(pg, url):
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/te/Documents/workspace/numharvest/excellentnumberstask/excellentnumbers_state_area.py", line 53, in _links
+    await collect("a[href*='/categories/']")
+  File "/Users/te/Documents/workspace/numharvest/excellentnumberstask/excellentnumbers_state_area.py", line 45, in collect
+    href = await a.get_attribute("href")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/playwright/async_api/_generated.py", line 16788, in get_attribute
+    await self._impl_obj.get_attribute(name=name, timeout=timeout)
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_locator.py", line 426, in get_attribute
+    return await self._frame.get_attribute(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_frame.py", line 709, in get_attribute
+    return await self._channel.send(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+        "getAttribute", self._timeout, locals_to_params(locals())
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/usr/local/lib/python3.13/site-packages/playwright/_impl/_connection.py", line 558, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+Exception: Locator.get_attribute: Connection closed while reading from the driver
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/te/Documents/workspace/numharvest/main.py", line 128, in _run_task
+    result = task.runner()
+  File "/Users/te/Documents/workspace/numharvest/main.py", line 77, in <lambda>
+    ).run(".", None),
+      ~~~^^^^^^^^^^^
+  File "/Users/te/Documents/workspace/numharvest/excellentnumberstask/excellentnumberstask.py", line 124, in run
+    raise RuntimeError(f"无法生成索引文件: {e}")
+RuntimeError: 无法生成索引文件: Locator.get_attribute: Connection closed while reading from the driver

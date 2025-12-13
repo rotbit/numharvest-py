@@ -42,8 +42,8 @@ class ExcellentNumbersScraper:
     def __init__(
         self,
         mongo_host: str,
-        mongo_user: str = "",
-        mongo_password: str = "",
+        mongo_user: str = "root",
+        mongo_password: str = "pp963470667",
         mongo_port: int = 27017,
         mongo_db: str = "excellentnumbers",
         mongo_collection: str = "numbers",
@@ -83,7 +83,7 @@ class ExcellentNumbersScraper:
         self.long_pause_range = long_pause_range
 
         # MongoDB 连接（按你原来的写法）
-        uri = f"mongodb://{mongo_user}:{mongo_password}@{mongo_host}:{mongo_port}/?authSource=extra_numbers"
+        uri = f"mongodb://{mongo_user}:{mongo_password}@{mongo_host}:{mongo_port}/?authSource=admin"
         self.mongo = MongoClient(uri)
         self.col = self.mongo[mongo_db][mongo_collection]
         # 唯一索引（保持你原来的：仅 phone 唯一）

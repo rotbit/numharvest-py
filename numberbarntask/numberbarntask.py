@@ -49,7 +49,7 @@ class NumberbarnNumberExtractor:
     """专门用于从numberbarn.com提取号码和价格的简化爬虫"""
 
     def __init__(self, mongo_host: str = "43.159.58.235",
-                 mongo_password: str = "RsBWd3hTAZeR7kC4",
+                 mongo_password: str = "pp963470667",
                  mongo_db: str = "extra_numbers"):
         self.mongo_host = mongo_host
         self.mongo_password = mongo_password
@@ -64,7 +64,7 @@ class NumberbarnNumberExtractor:
     def init_mongodb(self):
         """初始化MongoDB连接"""
         try:
-            connection_string = f"mongodb://extra_numbers:{self.mongo_password}@{self.mongo_host}:27017/{self.mongo_db}?authSource=extra_numbers"
+            connection_string = f"mongodb://root:{self.mongo_password}@{self.mongo_host}:27017/{self.mongo_db}?authSource=admin"
             self.mongo_client = MongoClient(connection_string)
             self.db = self.mongo_client[self.mongo_db]
             self.collection = self.db['numbers']
