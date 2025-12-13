@@ -5,6 +5,7 @@ from typing import Dict, Iterable, Tuple, Optional
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from .excellentnumbers_extractor import ExcellentNumbersScraper
 from .excellentnumbers_state_area import StateAreaCodeScraper  # 引入 StateAreaCodeScraper
+from progress_tracker import MongoProgressTracker
 
 DEFAULT_INDEX_LATEST = "/tmp/excellentnumbers_state_area_codes.json"
 DEFAULT_INDEX_GLOB   = "/tmp/excellentnumbers_state_area_codes_*.json"
@@ -28,6 +29,12 @@ class AreaCodeNumbersHarvester:
         retry_backoff_base: float = 1.8,  # 重试指数退避底数
         retry_jitter: Tuple[float, float] = (0.3, 0.9),      # 重试抖动
     ):
+        self.mongo_host = mongo_host
+        self.mongo_user = mongo_user
+        self.mongo_password = mongo_password
+        self.mongo_port = mongo_port
+        self.mongo_db = mongo_db
+        self.mongo_collection = mongo_collection
         self.scraper = ExcellentNumbersScraper(
             mongo_host=mongo_host,
             mongo_user=mongo_user,
@@ -141,12 +148,53 @@ class AreaCodeNumbersHarvester:
         if limit:
             urls = urls[:limit]
 
-        processed, success, failures, total_numbers = 0, 0, 0, 0
+        # ---------- 进度恢复 ----------
+        tracker = MongoProgressTracker(
+            mongo_host=self.mongo_host,
+            mongo_user=self.mongo_user,
+            mongo_password=self.mongo_password,
+            mongo_port=self.mongo_port,
+            mongo_db=self.mongo_db,
+        )
+        task_name = "excellentnumbers"
+        index_mtime = os.path.getmtime(index_file)
+        prev = tracker.load(task_name)
+        meta = {"index_file": index_file, "index_mtime": index_mtime, "total_urls": len(urls)}
+
+        if prev and prev.get("meta") == meta and prev.get("status") == "completed" and prev.get("cursor", 0) >= len(urls):
+            print(f"[RESUME] 发现已完成的进度（{len(urls)} URLs），直接返回。")
+            return {
+                "index_file": index_file,
+                "processed_urls": prev.get("cursor", len(urls)),
+                "success_urls": prev.get("summary", {}).get("success_urls", 0),
+                "failed_urls": prev.get("summary", {}).get("failed_urls", 0),
+                "numbers_captured_this_run": prev.get("summary", {}).get("numbers_captured_this_run", 0),
+                "elapsed_sec": 0,
+                "resumed": True,
+            }
+
+        if not prev or prev.get("meta") != meta:
+            tracker.start(task_name, total_items=len(urls), meta=meta)
+            start_cursor = 0
+            prev_summary = {"success_urls": 0, "failed_urls": 0, "numbers_captured_this_run": 0}
+            print(f"[RESUME] 未找到匹配进度，创建新进度记录，总计 {len(urls)} URLs。")
+        else:
+            start_cursor = int(prev.get("cursor", 0))
+            prev_summary = prev.get("summary", {}) or {}
+            print(f"[RESUME] 恢复进度，从第 {start_cursor + 1} 个 URL 继续（总计 {len(urls)}）。")
+
+        processed = start_cursor
+        success = int(prev_summary.get("success_urls", 0))
+        failures = int(prev_summary.get("failed_urls", 0))
+        total_numbers = int(prev_summary.get("numbers_captured_this_run", 0))
         seen_urls = set()
         print(f"[INDEX] Using: {index_file} | URL count: {len(urls)}")
         start_ts = time.time()
 
         for idx, (state, code, url) in enumerate(urls, start=1):
+            if idx <= start_cursor:
+                continue  # skip already processed
+
             if url in seen_urls:
                 continue
             seen_urls.add(url)
@@ -169,6 +217,17 @@ class AreaCodeNumbersHarvester:
             else:
                 failures += 1
 
+            # 实时保存进度
+            tracker.update(
+                task_name,
+                cursor=processed,
+                summary={
+                    "success_urls": success,
+                    "failed_urls": failures,
+                    "numbers_captured_this_run": total_numbers,
+                },
+            )
+
             if max_numbers and total_numbers >= max_numbers:
                 print(f"[STOP] Reached max_numbers={max_numbers}, early exit.")
                 break
@@ -184,6 +243,7 @@ class AreaCodeNumbersHarvester:
             "numbers_captured_this_run": total_numbers,
             "elapsed_sec": elapsed,
         }
+        tracker.complete(task_name, cursor=processed, summary=summary)
         print(f"[DONE] {summary}")
         return summary
 
