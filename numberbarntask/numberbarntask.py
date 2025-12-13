@@ -10,7 +10,7 @@ from typing import Dict, List
 import requests
 from playwright.async_api import async_playwright
 from pymongo import MongoClient
-from progress_tracker import MongoProgressTracker
+from progress_tracker import MongoCrawlHistory
 
 DEFAULT_JSON_FILE = "/tmp/numberbarn_state_npa_cache.json"  # 本地文件存储路径
 API_URL = "https://www.numberbarn.com/api/npas?$limit=1000"  # 获取 combinations 的 API 接口
@@ -342,18 +342,11 @@ class NumberbarnNumberExtractor:
         self,
         combinations: List[Dict],
         max_numbers: int | None = None,
-        tracker: MongoProgressTracker | None = None,
-        task_name: str | None = None,
-        start_cursor: int = 0,
-        prev_summary: Dict | None = None,
+        history: MongoCrawlHistory | None = None,
     ) -> List[Dict]:
-        """从给定的state-npa组合列表提取号码数据，支持断点续跑"""
+        """从给定的state-npa组合列表提取号码数据，若24小时内已抓过则跳过"""
         all_numbers: List[Dict] = []
-        processed = start_cursor
-        prev_summary = prev_summary or {}
-        success = int(prev_summary.get("success_combos", 0))
-        failures = int(prev_summary.get("failed_combos", 0))
-        total_numbers = int(prev_summary.get("numbers_captured_this_run", 0))
+        skipped_recent = 0
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -361,9 +354,6 @@ class NumberbarnNumberExtractor:
 
             try:
                 for i, combo in enumerate(combinations):
-                    if i < start_cursor:
-                        continue
-
                     state = combo['state']
                     npa = combo['npa']
 
@@ -371,48 +361,31 @@ class NumberbarnNumberExtractor:
 
                     url = f"https://www.numberbarn.com/search?type=local&state={state}&npa={npa}&moreResults=true&sort=price%2B&limit=24"
 
+                    if history and not history.should_crawl("numberbarn", url, freshness_hours=24):
+                        skipped_recent += 1
+                        continue
+
                     try:
                         numbers = await self.extract_numbers_from_url(page, url, state, npa, max_numbers=max_numbers)
 
                         if numbers:
                             all_numbers.extend(numbers)
-                            total_numbers += len(numbers)
                             print(f"  完成: 提取到 {len(numbers)} 个号码")
+                            if history:
+                                history.mark_crawled(
+                                    "numberbarn",
+                                    url,
+                                    meta={"state": state, "npa": npa, "numbers": len(numbers)},
+                                )
                         else:
                             print(f"  完成: 没有找到号码")
-                        success += 1
-                        processed += 1
 
                         if max_numbers and len(all_numbers) >= max_numbers:
                             print(f"已累计 {len(all_numbers)} 个号码，达到上限，停止后续组合")
-                            if tracker and task_name:
-                                tracker.complete(
-                                    task_name,
-                                    cursor=processed,
-                                    summary={
-                                        "success_combos": success,
-                                        "failed_combos": failures,
-                                        "numbers_captured_this_run": total_numbers,
-                                        "stopped_early": True,
-                                    },
-                                )
                             return all_numbers
 
                     except Exception as e:
                         print(f"  处理时出错: {e}")
-                        failures += 1
-                        processed += 1
-
-                    if tracker and task_name:
-                        tracker.update(
-                            task_name,
-                            cursor=processed,
-                            summary={
-                                "success_combos": success,
-                                "failed_combos": failures,
-                                "numbers_captured_this_run": total_numbers,
-                            },
-                        )
 
                     await page.wait_for_timeout(2000)
 
@@ -423,62 +396,33 @@ class NumberbarnNumberExtractor:
             finally:
                 await browser.close()
 
-        if tracker and task_name:
-            tracker.complete(
-                task_name,
-                cursor=processed,
-                summary={
-                    "success_combos": success,
-                    "failed_combos": failures,
-                    "numbers_captured_this_run": total_numbers,
-                },
-            )
+        if skipped_recent:
+            print(f"跳过了 {skipped_recent} 个在24小时内已抓取的组合")
+
         return all_numbers
 
     def run(self, max_numbers: int | None = None) -> List[Dict]:
-        """主函数，对外提供run接口，可限定最大号码数，支持断点续跑"""
+        """主函数，对外提供run接口，可限定最大号码数；24小时内抓过的组合会跳过"""
         combinations = self.load_combinations()
 
         if not combinations:
             print("未找到有效的组合数据")
             return []
 
-        # 进度跟踪
-        tracker = MongoProgressTracker(
+        history = MongoCrawlHistory(
             mongo_host=self.mongo_host,
             mongo_user="root",
             mongo_password=self.mongo_password,
             mongo_port=27017,
             mongo_db=self.mongo_db,
         )
-        task_name = "numberbarn"
-        json_mtime = os.path.getmtime(DEFAULT_JSON_FILE) if os.path.exists(DEFAULT_JSON_FILE) else None
-        meta = {"combo_count": len(combinations), "json_file": DEFAULT_JSON_FILE, "json_mtime": json_mtime}
-        prev = tracker.load(task_name)
-        prev_summary = prev.get("summary", {}) if prev else {}
-
-        if prev and prev.get("meta") == meta and prev.get("status") == "completed" and prev.get("cursor", 0) >= len(combinations):
-            print(f"[RESUME] 已完成的 numberbarn 进度（{len(combinations)} 组合），直接返回。")
-            return []
-
-        if not prev or prev.get("meta") != meta:
-            tracker.start(task_name, total_items=len(combinations), meta=meta)
-            start_cursor = 0
-            prev_summary = {}
-            print(f"[RESUME] 新建进度记录，总计 {len(combinations)} 个组合。")
-        else:
-            start_cursor = int(prev.get("cursor", 0))
-            print(f"[RESUME] 恢复进度，从第 {start_cursor + 1} 个组合继续（总计 {len(combinations)}）。")
 
         print(f"提取 {len(combinations)} 个 state-npa 组合")
         return asyncio.run(
             self.extract_from_combinations(
                 combinations,
                 max_numbers=max_numbers,
-                tracker=tracker,
-                task_name=task_name,
-                start_cursor=start_cursor,
-                prev_summary=prev_summary,
+                history=history,
             )
         )
 

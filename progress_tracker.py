@@ -1,19 +1,22 @@
-"""Lightweight MongoDB-based progress tracker used by scrapers.
+"""Crawl history helper: store successful URLs/combinations with last crawl time.
 
-The tracker stores per-task cursors in a dedicated collection so a crashed
-container or process can resume from the last completed unit of work.
+Used to skip items that已在24小时内抓取过。
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from pymongo import MongoClient
 
 
-class MongoProgressTracker:
-    """Minimal helper to persist scraper progress in MongoDB."""
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class MongoCrawlHistory:
+    """Persist crawl history so recent URLs can be skipped."""
 
     def __init__(
         self,
@@ -22,56 +25,31 @@ class MongoProgressTracker:
         mongo_password: str,
         mongo_port: int,
         mongo_db: str,
-        collection: str = "scrape_progress",
+        collection: str = "crawl_history",
     ) -> None:
         uri = f"mongodb://{mongo_user}:{mongo_password}@{mongo_host}:{mongo_port}/?authSource=admin"
         self.client = MongoClient(uri)
         self.col = self.client[mongo_db][collection]
-        # Ensure single record per task
-        self.col.create_index("task", unique=True)
+        self.col.create_index([("task", 1), ("key", 1)], unique=True)
 
-    def load(self, task: str) -> Optional[Dict[str, Any]]:
-        return self.col.find_one({"task": task})
+    def should_crawl(self, task: str, key: str, freshness_hours: int = 24) -> bool:
+        doc = self.col.find_one({"task": task, "key": key}, {"last_crawled": 1})
+        if not doc or "last_crawled" not in doc:
+            return True
+        last_ts: datetime = doc["last_crawled"]
+        return last_ts < _utc_now() - timedelta(hours=freshness_hours)
 
-    def start(self, task: str, total_items: int, meta: Optional[Dict[str, Any]] = None) -> None:
-        now = datetime.now(timezone.utc)
-        doc = {
-            "task": task,
-            "status": "running",
-            "cursor": 0,
-            "total_items": total_items,
-            "meta": meta or {},
-            "summary": {},
-            "started_at": now,
-            "updated_at": now,
-        }
+    def mark_crawled(self, task: str, key: str, meta: Optional[Dict[str, Any]] = None) -> None:
+        now = _utc_now()
         self.col.update_one(
-            {"task": task},
-            {"$set": doc, "$setOnInsert": {"created_at": now}},
-            upsert=True,
-        )
-
-    def update(self, task: str, cursor: int, summary: Dict[str, Any]) -> None:
-        now = datetime.now(timezone.utc)
-        self.col.update_one(
-            {"task": task},
-            {"$set": {"cursor": cursor, "summary": summary, "updated_at": now, "status": "running"}},
-        )
-
-    def complete(self, task: str, cursor: int, summary: Dict[str, Any]) -> None:
-        now = datetime.now(timezone.utc)
-        self.col.update_one(
-            {"task": task},
+            {"task": task, "key": key},
             {
                 "$set": {
-                    "cursor": cursor,
-                    "summary": summary,
-                    "status": "completed",
+                    "last_crawled": now,
+                    "meta": meta or {},
                     "updated_at": now,
-                    "finished_at": now,
-                }
+                },
+                "$setOnInsert": {"created_at": now},
             },
+            upsert=True,
         )
-
-    def clear(self, task: str) -> None:
-        self.col.delete_one({"task": task})
