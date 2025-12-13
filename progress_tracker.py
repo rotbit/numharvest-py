@@ -15,6 +15,13 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _as_aware(dt: datetime) -> datetime:
+    """Ensure datetime is timezone-aware (UTC)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 class MongoCrawlHistory:
     """Persist crawl history so recent URLs can be skipped."""
 
@@ -36,7 +43,7 @@ class MongoCrawlHistory:
         doc = self.col.find_one({"task": task, "key": key}, {"last_crawled": 1})
         if not doc or "last_crawled" not in doc:
             return True
-        last_ts: datetime = doc["last_crawled"]
+        last_ts: datetime = _as_aware(doc["last_crawled"])
         return last_ts < _utc_now() - timedelta(hours=freshness_hours)
 
     def mark_crawled(self, task: str, key: str, meta: Optional[Dict[str, Any]] = None) -> None:
