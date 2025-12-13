@@ -1,16 +1,49 @@
 import asyncio
 import json
-import re
 import os
-import time
 import random
-from typing import List, Dict
+import re
+import time
+from datetime import datetime
+from typing import Dict, List
+
+import requests
 from playwright.async_api import async_playwright
 from pymongo import MongoClient
-from datetime import datetime
 
 DEFAULT_JSON_FILE = "/tmp/numberbarn_state_npa_cache.json"  # 本地文件存储路径
 API_URL = "https://www.numberbarn.com/api/npas?$limit=1000"  # 获取 combinations 的 API 接口
+# 页面内抽取号码与价格的脚本，放在模块级避免函数过长
+JS_EXTRACT_SCRIPT = """
+() => {
+    const numbers = [];
+    const phonePattern = /(\\(\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4})/g;
+    const pricePattern = /\\$[\\d,]+\\.?\\d*/g;
+    const nodes = document.querySelectorAll(
+        '.number-item, .phone-number, .listing-item, [data-phone], .search-result, .result-item'
+    );
+
+    const pushMatch = (text) => {
+        const phones = text.match(phonePattern);
+        if (!phones) return;
+        const price = text.match(pricePattern)?.[0] ?? '';
+        numbers.push({ number: phones[0].trim(), price });
+    };
+
+    if (nodes.length) {
+        nodes.forEach(el => pushMatch(el.textContent || ''));
+    }
+    if (!numbers.length) {
+        const bodyText = document.body.textContent || '';
+        const uniquePhones = [...new Set(bodyText.match(phonePattern) || [])];
+        uniquePhones.forEach(phone => {
+            const price = bodyText.match(pricePattern)?.[0] ?? '';
+            numbers.push({ number: phone.trim(), price });
+        });
+    }
+    return numbers;
+}
+"""
 
 class NumberbarnNumberExtractor:
     """专门用于从numberbarn.com提取号码和价格的简化爬虫"""
@@ -43,33 +76,6 @@ class NumberbarnNumberExtractor:
         except Exception as e:
             print(f"MongoDB连接失败: {e}")
             self.mongo_client = None
-            
-    def get_combinations_from_api(self) -> List[Dict]:
-        """从接口获取所有state和npa的组合"""
-        try:
-            print(f"从API获取state和npa组合: {API_URL}")
-            response = requests.get(API_URL)
-            response.raise_for_status()  # 如果请求失败，抛出异常
-
-            data = response.json()
-            combinations = []
-
-            if isinstance(data, dict) and 'data' in data:
-                for entry in data['data']:
-                    state = entry.get('state')
-                    npa = entry.get('npa')
-                    if state and npa and len(str(npa)) == 3:
-                        combinations.append({
-                            'state': str(state).upper(),
-                            'npa': str(npa)
-                        })
-
-            print(f"从API获取到 {len(combinations)} 条有效组合")
-            return combinations
-
-        except Exception as e:
-            print(f"从API获取state-npa组合失败: {e}")
-            return []
 
     def get_combinations_from_file(self, json_file: str = DEFAULT_JSON_FILE) -> List[Dict]:
         """从本地JSON文件获取state和npa的组合"""
@@ -111,11 +117,9 @@ class NumberbarnNumberExtractor:
 
     def get_combinations_from_api(self) -> List[Dict]:
         """从接口获取所有state和npa的组合"""
-        import requests
-        API_URL = "https://www.numberbarn.com/api/npas?$limit=1000"
         try:
             print(f"从API获取state和npa组合: {API_URL}")
-            response = requests.get(API_URL)
+            response = requests.get(API_URL, timeout=30)
             response.raise_for_status()  # 如果请求失败，抛出异常
 
             data = response.json()
@@ -131,210 +135,176 @@ class NumberbarnNumberExtractor:
                             'npa': str(npa)
                         })
 
-            print(f"从API获取到 {len(combinations)} 条有效组合")
-            return combinations
+            deduped = []
+            seen = set()
+            for combo in combinations:
+                key = (combo['state'], combo['npa'])
+                if key not in seen:
+                    seen.add(key)
+                    deduped.append(combo)
+
+            print(f"从API获取到 {len(deduped)} 条有效组合")
+            return deduped
 
         except Exception as e:
             print(f"从API获取state-npa组合失败: {e}")
             return []
+
+    def load_combinations(self, json_file: str = DEFAULT_JSON_FILE) -> List[Dict]:
+        """优先使用本地缓存，其次调用API并刷新缓存。"""
+        combinations = self.get_combinations_from_file(json_file)
+        if combinations:
+            return combinations
+
+        combinations = self.get_combinations_from_api()
+        if combinations:
+            self.save_combinations_to_file(combinations, json_file)
+        return combinations
 
     def save_numbers_to_mongodb(self, numbers: List[Dict]) -> bool:
         """将号码列表保存到MongoDB，每个号码一条记录"""
         if not self.mongo_client or not numbers:
             return False
 
+        current_time = datetime.utcnow()
+        documents = [
+            {
+                'phone': number_data.get('number', ''),
+                'price': number_data.get('price', ''),
+                'source_url': number_data.get('source_url', ''),
+                'source': "numberbarn",
+                'crawled_at': current_time
+            }
+            for number_data in numbers
+            if number_data.get('number')
+        ]
+
+        if not documents:
+            return False
+
         try:
-            documents = []
-            current_time = datetime.utcnow()
-
-            for number_data in numbers:
-                doc = {
-                    'phone': number_data.get('number', ''),
-                    'price': number_data.get('price', ''),
-                    'source_url': number_data.get('source_url', ''),
-                    'source':"numberbarn",
-                    'crawled_at': current_time
-                }
-                documents.append(doc)
-
-            # 批量插入，忽略重复记录
-            if documents:
-                try:
-                    result = self.collection.insert_many(documents, ordered=False)
-                    print(f"  MongoDB: 成功插入 {len(result.inserted_ids)} 条记录")
-                    return True
-                except Exception as e:
-                    # 处理重复键错误
-                    if 'duplicate key error' in str(e).lower() or 'E11000' in str(e):
-                        inserted_count = 0
-                        for doc in documents:
-                            try:
-                                self.collection.insert_one(doc)
-                                inserted_count += 1
-                            except Exception:
-                                try:
-                                    self.collection.update_one(
-                                        {'number': doc['number']},
-                                        {'$set': {'updated_at': current_time}}
-                                    )
-                                except Exception:
-                                    pass
-                        print(f"插入 {inserted_count} 条新记录，跳过重复记录")
-                        return True
-                    else:
-                        raise e
-
+            result = self.collection.insert_many(documents, ordered=False)
+            print(f"  MongoDB: 成功插入 {len(result.inserted_ids)} 条记录")
+            return True
         except Exception as e:
+            error_msg = str(e).lower()
+            if 'duplicate key error' in error_msg or 'e11000' in error_msg:
+                upserted = 0
+                for doc in documents:
+                    phone = doc.get('phone')
+                    if not phone:
+                        continue
+                    self.collection.update_one(
+                        {'phone': phone},
+                        {'$set': {
+                            'price': doc.get('price', ''),
+                            'source_url': doc.get('source_url', ''),
+                            'source': doc.get('source', "numberbarn"),
+                            'crawled_at': doc.get('crawled_at', current_time)
+                        }},
+                        upsert=True
+                    )
+                    upserted += 1
+                print(f"  MongoDB: 插入/更新 {upserted} 条记录（处理重复键）")
+                return True
+
             print(f"  MongoDB保存失败: {e}")
             return False
 
-        return False
-
     async def extract_numbers_from_url(self, page, url: str, state: str, npa: str) -> List[Dict]:
-        """从指定URL提取号码和价格数据，支持翻页"""
-        all_numbers = []
+        """从指定 URL 提取号码与价格，分页上限 10 页。"""
+        all_numbers: List[Dict] = []
         page_number = 1
-        max_pages = 10  # 最大翻页数，防止无限循环
-        
+        max_pages = 10
+
         try:
-            print(f"正在处理: {state} - {npa}")
-            print(f"访问URL: {url}")
-            
-            await page.goto(url, wait_until="domcontentloaded", timeout=90000)
-            await page.wait_for_timeout(random.uniform(10000, 30000))
-            
+            print(f"正在处理: {state} - {npa}\\n访问URL: {url}")
+            await self._open_search_page(page, url)
+
             while page_number <= max_pages:
-                print(f"  正在提取第 {page_number} 页数据...")
-                
-                # 提取当前页面的号码数据
-                page_numbers = await page.evaluate("""
-                    () => {
-                        const numbers = [];
-                        
-                        // 查找包含电话号码和价格的元素
-                        const numberElements = document.querySelectorAll('.number-item, .phone-number, .listing-item, [data-phone], .search-result, .result-item');
-                        
-                        if (numberElements.length > 0) {
-                            numberElements.forEach(el => {
-                                const text = el.textContent || '';
-                                
-                                // 提取电话号码 - 支持多种格式
-                                const phonePattern = /(\\(\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4})/g;
-                                const phoneMatches = text.match(phonePattern);
-                                
-                                if (phoneMatches) {
-                                    // 提取价格
-                                    const pricePattern = /\\$[\\d,]+\\.?\\d*/g;
-                                    const priceMatch = text.match(pricePattern);
-                                    
-                                    numbers.push({
-                                        number: phoneMatches[0].trim(),
-                                        price: priceMatch ? priceMatch[0] : ''
-                                    });
-                                }
-                            });
-                        }
-                        
-                        // 如果没有找到专门的号码元素，进行全局搜索
-                        if (numbers.length === 0) {
-                            const bodyText = document.body.textContent || '';
-                            const phonePattern = /(\\(\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4})/g;
-                            const phoneMatches = bodyText.match(phonePattern);
-                            
-                            if (phoneMatches) {
-                                // 去重
-                                const uniquePhones = [...new Set(phoneMatches)];
-                                
-                                uniquePhones.forEach(phone => {
-                                    // 尝试在附近找到价格
-                                    const pricePattern = /\\$[\\d,]+\\.?\\d*/g;
-                                    const priceMatch = bodyText.match(pricePattern);
-                                    
-                                    numbers.push({
-                                        number: phone.trim(),
-                                        price: priceMatch ? priceMatch[0] : ''
-                                    });
-                                });
-                            }
-                        }
-                        
-                        return numbers;
-                    }
-                """)
-                
-                # 添加state和npa信息
-                current_page_numbers = []
-                for number in page_numbers:
-                    number.update({
-                        'state': state,
-                        'npa': npa,
-                        'page': page_number,
-                        'source_url': page.url
-                    })
-                    current_page_numbers.append(number)
-                    all_numbers.append(number)
-                
-                print(f"    第 {page_number} 页提取到 {len(current_page_numbers)} 个号码")
-                
-                # 打印当前页的前3条记录（如果是第一页）
-                if page_number == 1 and current_page_numbers:
-                    print("    前3条记录:")
-                    for i, number in enumerate(current_page_numbers[:3]):
-                        print(f"      {i+1}. 号码: {number.get('number', '')}, 价格: {number.get('price', '')}, 州: {number.get('state', '')}, 区号: {number.get('npa', '')}")
-                
-                # 立即保存当前页数据到MongoDB
-                if current_page_numbers:
-                    self.save_numbers_to_mongodb(current_page_numbers)
-                
-                # 检查是否有下一页（查找 '>' 翻页按钮）
-                try:
-                    # 查找翻页按钮的多种可能选择器
-                    next_button_selectors = [
-                        'a:has-text(">")',
-                        'button:has-text(">")',
-                        '.pagination a:has-text(">")',
-                        '.pager a:has-text(">")',
-                        '[aria-label*="next"]',
-                        '[title*="next"]',
-                        '.next-page',
-                        '.pagination-next'
-                    ]
-                    
-                    next_button = None
-                    for selector in next_button_selectors:
-                        try:
-                            next_button = await page.query_selector(selector)
-                            if next_button:
-                                # 检查按钮是否可以点击（不是禁用状态）
-                                is_disabled = await next_button.is_disabled()
-                                is_visible = await next_button.is_visible()
-                                if not is_disabled and is_visible:
-                                    break
-                                else:
-                                    next_button = None
-                        except:
-                            continue
-                    
-                    if next_button:
-                        print(f"    找到下一页按钮，正在翻到第 {page_number + 1} 页...")
-                        await next_button.click()
-                        await page.wait_for_timeout(2000)  # 等待页面加载
-                        page_number += 1
-                    else:
-                        print(f"    没有找到下一页按钮，当前组合提取完成")
-                        break
-                        
-                except Exception as e:
-                    print(f"    翻页时出错: {e}")
+                current_numbers = await self._scrape_current_page(page, state, npa, page_number)
+                all_numbers.extend(current_numbers)
+                if not current_numbers or not await self._goto_next_page(page, page_number):
                     break
-                    
+                page_number += 1
+
             print(f"  组合 {state}-{npa} 总共提取到 {len(all_numbers)} 个号码（{page_number} 页）")
-            
             return all_numbers
-            
+
         except Exception as e:
             print(f"提取数据失败 {url}: {e}")
             return []
+
+    async def _open_search_page(self, page, url: str) -> None:
+        """首跳并做随机等待，降低反爬概率。"""
+        await page.goto(url, wait_until="domcontentloaded", timeout=90_000)
+        await page.wait_for_timeout(random.uniform(10_000, 30_000))
+
+    async def _scrape_current_page(self, page, state: str, npa: str, page_number: int) -> List[Dict]:
+        """抓取当前页、补全元数据并即时写入 Mongo。"""
+        print(f"  正在提取第 {page_number} 页数据...")
+        raw_numbers = await page.evaluate(JS_EXTRACT_SCRIPT) or []
+        annotated = self._annotate_numbers(raw_numbers, state, npa, page_number, page.url)
+
+        print(f"    第 {page_number} 页提取到 {len(annotated)} 个号码")
+        self._log_samples(annotated)
+        if annotated:
+            self.save_numbers_to_mongodb(annotated)
+        return annotated
+
+    @staticmethod
+    def _annotate_numbers(numbers: List[Dict], state: str, npa: str, page_number: int, url: str) -> List[Dict]:
+        """补充州/区号/页码/来源 URL，返回新列表防止副作用。"""
+        return [
+            {
+                "number": num.get("number", ""),
+                "price": num.get("price", ""),
+                "state": state,
+                "npa": npa,
+                "page": page_number,
+                "source_url": url,
+            }
+            for num in numbers
+        ]
+
+    @staticmethod
+    def _log_samples(numbers: List[Dict]) -> None:
+        """打印前三条样例，便于人工观察。"""
+        if not numbers:
+            return
+        print("    前3条记录:")
+        for idx, num in enumerate(numbers[:3], 1):
+            print(
+                f"      {idx}. 号码: {num.get('number','')}, 价格: {num.get('price','')}, "
+                f"州: {num.get('state','')}, 区号: {num.get('npa','')}"
+            )
+
+    async def _goto_next_page(self, page, page_number: int) -> bool:
+        """尝试点击下一页，成功返回 True，未找到则 False。"""
+        selectors = [
+            'a:has-text(">")',
+            'button:has-text(">")',
+            '.pagination a:has-text(">")',
+            '.pager a:has-text(">")',
+            '[aria-label*="next"]',
+            '[title*="next"]',
+            '.next-page',
+            '.pagination-next',
+        ]
+
+        for selector in selectors:
+            try:
+                btn = await page.query_selector(selector)
+                if btn and await btn.is_visible() and not await btn.is_disabled():
+                    print(f"    翻到第 {page_number + 1} 页...")
+                    await btn.click()
+                    await page.wait_for_timeout(2_000)
+                    return True
+            except Exception:
+                continue
+
+        print("    没有找到下一页按钮，当前组合提取完成")
+        return False
         
     async def extract_single_url(self, url: str) -> List[Dict]:
         """从单个URL提取号码数据"""
@@ -406,10 +376,7 @@ class NumberbarnNumberExtractor:
 
     def run(self) -> List[Dict]:
         """主函数，对外提供run接口"""
-        combinations = self.get_combinations_from_file()
-
-        if not combinations:
-            combinations = self.get_combinations_from_api()
+        combinations = self.load_combinations()
 
         if combinations:
             print(f"提取 {len(combinations)} 个 state-npa 组合")
