@@ -257,10 +257,6 @@ class NumberHarvestScheduler:
         schedule.every(5).days.do(self.run_scrapers_only)
         self.logger.info("定时任务调度设置完成：每小时同步，每5天抓取一次")
 
-        # 创建健康检查文件
-        with open("/tmp/healthcheck", "w") as health_file:
-            health_file.write("healthy")
-
     def run_scheduler(self) -> None:
         """运行调度器主循环。"""
         # 启动后先并行抓取一次，再进入调度

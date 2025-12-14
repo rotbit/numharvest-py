@@ -63,9 +63,5 @@ USER numharvest
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import os; exit(0 if os.path.exists('/app/numharvest.pid') else 1)" || exit 1
-
 # 默认命令
 CMD ["python", "main.py"]
