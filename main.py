@@ -51,11 +51,6 @@ class NumberHarvestScheduler:
     def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
 
-        # 任务锁配置 (2小时超时，30秒心跳)
-        self.task_lock = TaskLock(
-            lock_file="numharvest_task.lock", timeout_minutes=120, heartbeat_interval=30
-        )
-
         self.mongo_settings = MongoSettings()
         self.postgres_settings = PostgresSettings()
         self.scrape_timeout_seconds = 3600
@@ -121,18 +116,45 @@ class NumberHarvestScheduler:
         return tasks
 
     def _run_task(self, task: TaskDefinition) -> TaskResult:
-        """统一的任务执行方法。"""
+        """统一的任务执行方法，按单任务独立锁互斥。"""
+        lock = TaskLock(
+            lock_file=f"numharvest_{task.key}.lock",
+            timeout_minutes=120,
+            heartbeat_interval=30,
+        )
+        lock_status = lock.get_lock_status()
+        if lock_status["locked"]:
+            self.logger.warning("任务[%s]已在运行，跳过本次执行: %s", task.label, lock_status["message"])
+            return TaskResult(task.key, task.label, False, f"{task.label} 正在运行，跳过", None)
+
         start_time = datetime.now()
         self.logger.info("开始执行%s任务", task.label)
 
         try:
-            result = task.runner()
-            duration = (datetime.now() - start_time).total_seconds()
+            with lock:
+                heartbeat = HeartbeatManager(lock)
+                heartbeat.start()
+                try:
+                    result = task.runner()
+                    success = True
+                    message = f"{task.label}任务成功完成"
+                except Exception as exc:  # noqa: B902
+                    success = False
+                    result = None
+                    message = f"执行{task.label}任务时出错: {exc}"
+                    self.logger.error(message, exc_info=True)
+                finally:
+                    heartbeat.stop()
+        except RuntimeError as exc:
+            self.logger.warning("获取任务[%s]锁失败: %s", task.label, exc)
+            return TaskResult(task.key, task.label, False, f"无法获取锁: {exc}", None)
+
+        duration = (datetime.now() - start_time).total_seconds()
+        if success:
             self.logger.info("%s任务完成，耗时: %.2f秒", task.label, duration)
-            return TaskResult(task.key, task.label, True, f"{task.label}任务成功完成", result)
-        except Exception as exc:  # noqa: B902
-            self.logger.error("执行%s任务时出错: %s", task.label, exc, exc_info=True)
-            return TaskResult(task.key, task.label, False, f"执行{task.label}任务时出错: {exc}", None)
+        else:
+            self.logger.error("%s任务失败，耗时: %.2f秒", task.label, duration)
+        return TaskResult(task.key, task.label, success, message, result)
 
     def _run_tasks_in_parallel(self, tasks: List[TaskDefinition]) -> List[TaskResult]:
         """并行执行任务并收集结果，不做超时终止控制。"""
@@ -151,34 +173,6 @@ class NumberHarvestScheduler:
                     results.append(TaskResult(task.key, task.label, False, f"任务执行失败: {exc}", None))
 
         return results
-
-    def _with_task_lock(self, action: Callable[[], None]) -> bool:
-        """获取锁并执行任务体，处理心跳和异常。"""
-        lock_status = self.task_lock.get_lock_status()
-        if lock_status["locked"]:
-            self.logger.warning("任务已在运行，跳过本次任务: %s", lock_status["message"])
-            return False
-
-        try:
-            with self.task_lock:
-                self.logger.info("获取任务锁成功 (PID: %s)", os.getpid())
-
-                heartbeat = HeartbeatManager(self.task_lock)
-                heartbeat.start()
-
-                try:
-                    action()
-                    return True
-                finally:
-                    heartbeat.stop()
-
-        except RuntimeError as exc:
-            lock_status = self.task_lock.get_lock_status()
-            self.logger.warning("无法获取任务锁: %s", lock_status.get("message", str(exc)))
-        except Exception as exc:  # noqa: B902
-            self.logger.error("任务执行过程中发生未预期错误: %s", exc, exc_info=True)
-
-        return False
 
     def _execute_main_tasks(self) -> None:
         """并行执行抓取任务和数据同步任务（同一批次同时启动）。"""
@@ -250,7 +244,7 @@ class NumberHarvestScheduler:
         """定时触发封装：异步启动抓取+同步，并使用任务锁防止重入。"""
         self.logger.info("⏰ 定时触发抓取+同步（异步启动）")
         threading.Thread(
-            target=lambda: self._with_task_lock(self._execute_main_tasks),
+            target=self._execute_main_tasks,
             daemon=True,
         ).start()
 
@@ -258,7 +252,7 @@ class NumberHarvestScheduler:
         """运行调度器主循环。"""
         # 启动后先执行一次并行抓取+同步，然后进入调度
         self.logger.info("启动后先执行一次并行抓取+同步")
-        self._with_task_lock(self._execute_main_tasks)
+        self._execute_main_tasks()
 
         self.setup_schedule()
         self.logger.info("数字收获调度器启动（每10分钟同步，每5天抓取）")
