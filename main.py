@@ -59,7 +59,7 @@ class NumberHarvestScheduler:
         self.postgres_settings = PostgresSettings()
         self.scrape_timeout_seconds = 3600
 
-    def _build_scrape_tasks(self) -> List[TaskDefinition]:
+    def _build_main_tasks(self) -> List[TaskDefinition]:
         """构建两个抓取任务的定义。"""
         mongo = self.mongo_settings
         return [
@@ -87,36 +87,29 @@ class NumberHarvestScheduler:
                 ).run(),
                 timeout_seconds=self.scrape_timeout_seconds,
             ),
+            TaskDefinition(
+                key="sync",
+                label="数据同步",
+                runner=lambda: MongoToPostgreSQLSync(
+                    mongo_host=mongo.host,
+                    mongo_user=mongo.user,
+                    mongo_password=mongo.password,
+                    mongo_port=mongo.port,
+                    mongo_db=mongo.db,
+                    postgres_host=postgres.host,
+                    postgres_port=postgres.port,
+                    postgres_db=postgres.db,
+                    postgres_user=postgres.user,
+                    postgres_password=postgres.password,
+                    batch_size=1000,
+                    dry_run=False,
+                ).run(),
+                timeout_seconds=self.scrape_timeout_seconds,
+            )
         ]
 
-    def _build_sync_task(self) -> TaskDefinition:
-        """构建数据同步任务。"""
-        mongo = self.mongo_settings
-        postgres = self.postgres_settings
-        return TaskDefinition(
-            key="sync",
-            label="数据同步",
-            runner=lambda: MongoToPostgreSQLSync(
-                mongo_host=mongo.host,
-                mongo_user=mongo.user,
-                mongo_password=mongo.password,
-                mongo_port=mongo.port,
-                mongo_db=mongo.db,
-                postgres_host=postgres.host,
-                postgres_port=postgres.port,
-                postgres_db=postgres.db,
-                postgres_user=postgres.user,
-                postgres_password=postgres.password,
-                batch_size=1000,
-                dry_run=False,
-            ).run(),
-            timeout_seconds=self.scrape_timeout_seconds,
-        )
-
     def _task_map(self) -> Dict[str, TaskDefinition]:
-        tasks = {task.key: task for task in self._build_scrape_tasks()}
-        sync_task = self._build_sync_task()
-        tasks[sync_task.key] = sync_task
+        tasks = {task.key: task for task in self._build_main_tasks()}
         return tasks
 
     def _run_task(self, task: TaskDefinition) -> TaskResult:
@@ -195,17 +188,17 @@ class NumberHarvestScheduler:
             status = "✅" if result.success else "❌"
             self.logger.info("%s 任务 %s 结果: %s", status, result.label, result.message)
 
-        if success_count > 0:
+        if success_count == 0:
+            self.logger.warning("⚠️ 所有 %d 个抓取任务均失败，仍然继续执行数据同步以保证一致性", len(scrape_results))
+        else:
             self.logger.info("有 %d 个抓取任务成功，%d 个失败，开始数据同步", success_count, failed_count)
 
-            sync_result = self._run_task(self._build_sync_task())
-            duration = (datetime.now() - start_time).total_seconds()
-            if sync_result.success:
-                self.logger.info("✅ 数据同步成功完成，总耗时: %.2f秒", duration)
-            else:
-                self.logger.error("❌ 数据同步失败，总耗时: %.2f秒", duration)
+        sync_result = self._run_task(self._build_sync_task())
+        duration = (datetime.now() - start_time).total_seconds()
+        if sync_result.success:
+            self.logger.info("✅ 数据同步成功完成，总耗时: %.2f秒", duration)
         else:
-            self.logger.error("❌ 所有 %d 个抓取任务均失败，跳过数据同步", len(scrape_results))
+            self.logger.error("❌ 数据同步失败，总耗时: %.2f秒", duration)
     
     def run_test_flow(self, max_numbers: int = 10) -> None:
         """测试流程：先excellentnumbers抓10条，再numberbarn抓10条，最后同步。"""
