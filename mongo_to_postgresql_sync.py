@@ -150,9 +150,9 @@ class MongoToPostgreSQLSync:
             self.logger.error(f"获取MongoDB集合失败: {e}")
             return []
     
-    def get_today_mongo_data(self, collection_name: str, target_date: Optional[datetime] = None) -> List[Dict]:
+    def get_recent_mongo_data(self, collection_name: str, days: int = 5) -> List[Dict]:
         """
-        按天获取MongoDB某日的数据（用于逐日同步，直到今天）
+        获取最近指定天数内的MongoDB数据（默认5天）
         
         MongoDB文档结构:
         - excellentnumbers: {phone, price, source_url, source, crawled_at}
@@ -162,10 +162,9 @@ class MongoToPostgreSQLSync:
             db = self.mongo_client[self.mongo_db]
             collection = db[collection_name]
 
-            # 目标日期的起止时间（UTC）
-            target_date = target_date or datetime.now(timezone.utc)
-            start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
-            end_time = start_time + timedelta(days=1)
+            # 时间范围：最近 days 天（含今天）到现在（UTC）
+            end_time = datetime.now(timezone.utc)
+            start_time = end_time - timedelta(days=days)
             
             # 构建查询条件
             query = {}
@@ -194,7 +193,7 @@ class MongoToPostgreSQLSync:
             
             # 执行查询
             documents = list(collection.find(query))
-            self.logger.info(f"集合 {collection_name} 在 {start_time.date()} 找到 {len(documents)} 条数据")
+            self.logger.info(f"集合 {collection_name} 最近{days}天内找到 {len(documents)} 条数据")
             
             return documents
             
@@ -357,14 +356,17 @@ class MongoToPostgreSQLSync:
     def _fetch_existing_records(self, cursor, batch: List[Dict]) -> Dict[str, tuple]:
         """一次查询批次中已有的号码记录，键为 country_code:national_number。"""
         keys = [(r["country_code"], r["national_number"]) for r in batch]
-        cursor.execute(
-            """
+        if not keys:
+            return {}
+
+        # 使用显式 VALUES 列表，避免 ANY(array) 触发 unknown 类型的哈希错误
+        values_sql = ",".join(cursor.mogrify("(%s,%s)", k).decode() for k in keys)
+        query = f"""
             SELECT country_code, national_number, price_str, original_price, source_url, source
             FROM phone_numbers
-            WHERE (country_code, national_number) = ANY(%s)
-            """,
-            (keys,),
-        )
+            WHERE (country_code, national_number) IN ({values_sql})
+        """
+        cursor.execute(query)
         return {f"{row[0]}:{row[1]}": row for row in cursor.fetchall()}
 
     def _classify_records(
@@ -443,18 +445,17 @@ class MongoToPostgreSQLSync:
             self.logger.info("PostgreSQL连接已关闭")
             
     def sync_collection(self, collection_name: str) -> bool:
-        """仅同步当天数据，避免长周期扫描"""
+        """同步最近5天的数据，避免长周期全量扫描"""
         self.logger.info(f"开始同步集合: {collection_name}")
 
-        today_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        mongo_data = self.get_today_mongo_data(collection_name, today_utc)
+        mongo_data = self.get_recent_mongo_data(collection_name, days=5)
         if not mongo_data:
-            self.logger.info(f"{collection_name} 今日无数据，跳过")
+            self.logger.info(f"{collection_name} 最近5天无数据，跳过")
             return True
 
         normalized_data = self.normalize_mongo_data(mongo_data, collection_name)
         if not normalized_data:
-            self.logger.info(f"{collection_name} 今日标准化后无有效数据，跳过")
+            self.logger.info(f"{collection_name} 最近5天标准化后无有效数据，跳过")
             return True
 
         total_records = 0
@@ -463,10 +464,10 @@ class MongoToPostgreSQLSync:
             if self.insert_to_postgresql(batch):
                 total_records += len(batch)
             else:
-                self.logger.error(f"{collection_name} 今日批次 {i//self.batch_size + 1} 插入失败")
+                self.logger.error(f"{collection_name} 最近5天批次 {i//self.batch_size + 1} 插入失败")
                 return False
 
-        self.logger.info(f"{collection_name} 今日同步完成，处理 {total_records} 条记录")
+        self.logger.info(f"{collection_name} 最近5天同步完成，处理 {total_records} 条记录")
         return True
     def sync_all_collections(self) -> bool:
         """同步所有集合的数据"""
