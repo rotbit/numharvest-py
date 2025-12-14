@@ -253,14 +253,8 @@ class NumberHarvestScheduler:
         - 每10分钟执行一次数据同步
         - 每5天并行执行一次抓取（excellentnumbers + numberbarn）
         """
-        schedule.every(10).minutes.do(self._scheduled_sync)
-        schedule.every(5).days.do(self.run_scrapers_only)
-        self.logger.info("定时任务调度设置完成：每10分钟同步，每5天抓取一次")
-
-    def _scheduled_sync(self) -> None:
-        """定时任务包装：打印触发日志再执行同步。"""
-        self.logger.info("⏰ 定时触发自动同步任务")
-        self.run_single_task("sync")
+        schedule.every(10).minutes.do(self._execute_main_tasks)
+        self.logger.info("定时任务调度设置完成：每10分钟并行抓取+同步")
 
     def run_scheduler(self) -> None:
         """运行调度器主循环。"""
