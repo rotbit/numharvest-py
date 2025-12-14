@@ -14,8 +14,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, List
 
-import schedule
-
 from excellentnumberstask import AreaCodeNumbersHarvester
 from mongo_to_postgresql_sync import MongoToPostgreSQLSync
 from numberbarntask import NumberbarnNumberExtractor
@@ -231,38 +229,16 @@ class NumberHarvestScheduler:
             self._run_tasks_in_parallel(self._build_scrape_tasks())
         self._with_task_lock(_task_body)
 
-    def setup_schedule(self) -> None:
-        """
-        设置定时任务调度：
-        - 每10分钟执行一次数据同步
-        - 每5天并行执行一次抓取（excellentnumbers + numberbarn）
-        """
-        schedule.every(10).minutes.do(self._scheduled_main_tasks)
-        self.logger.info("定时任务调度设置完成：每10分钟并行抓取+同步（异步触发，使用任务锁防重）")
-
-    def _scheduled_main_tasks(self) -> None:
-        """定时触发封装：异步启动抓取+同步，并使用任务锁防止重入。"""
-        self.logger.info("⏰ 定时触发抓取+同步（异步启动）")
-        threading.Thread(
-            target=self._execute_main_tasks,
-            daemon=True,
-        ).start()
-
     def run_scheduler(self) -> None:
-        """运行调度器主循环。"""
-        # 启动后先执行一次并行抓取+同步，然后进入调度
-        self.logger.info("启动后先执行一次并行抓取+同步")
-        self._execute_main_tasks()
-
-        self.setup_schedule()
-        self.logger.info("数字收获调度器启动（每10分钟同步，每5天抓取）")
-
+        """简单循环：执行一轮抓取+同步，完成后sleep 10 分钟再执行。"""
         try:
             while True:
-                schedule.run_pending()
+                self.logger.info("启动一轮抓取+同步")
+                self._execute_main_tasks()
+                self.logger.info("本轮结束，休眠600秒")
                 time.sleep(60)
         except KeyboardInterrupt:
-            self.logger.info("调度器停止")
+            self.logger.info("调度器停止（收到Ctrl+C）")
 
     def run_single_task(self, task_type: str) -> None:
         """执行单个任务。"""
