@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -242,14 +243,22 @@ class NumberHarvestScheduler:
         - 每10分钟执行一次数据同步
         - 每5天并行执行一次抓取（excellentnumbers + numberbarn）
         """
-        schedule.every(10).minutes.do(self._execute_main_tasks)
-        self.logger.info("定时任务调度设置完成：每10分钟并行抓取+同步")
+        schedule.every(10).minutes.do(self._scheduled_main_tasks)
+        self.logger.info("定时任务调度设置完成：每10分钟并行抓取+同步（异步触发，使用任务锁防重）")
+
+    def _scheduled_main_tasks(self) -> None:
+        """定时触发封装：异步启动抓取+同步，并使用任务锁防止重入。"""
+        self.logger.info("⏰ 定时触发抓取+同步（异步启动）")
+        threading.Thread(
+            target=lambda: self._with_task_lock(self._execute_main_tasks),
+            daemon=True,
+        ).start()
 
     def run_scheduler(self) -> None:
         """运行调度器主循环。"""
         # 启动后先执行一次并行抓取+同步，然后进入调度
         self.logger.info("启动后先执行一次并行抓取+同步")
-        self._execute_main_tasks()
+        self._with_task_lock(self._execute_main_tasks)
 
         self.setup_schedule()
         self.logger.info("数字收获调度器启动（每10分钟同步，每5天抓取）")
