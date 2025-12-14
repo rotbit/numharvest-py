@@ -7,6 +7,7 @@ import time
 import fcntl
 import signal
 import psutil
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -213,11 +214,22 @@ class HeartbeatManager:
     def __init__(self, task_lock: TaskLock):
         self.task_lock = task_lock
         self.running = False
+        self._thread = None
         
     def start(self):
-        """启动心跳"""
+        """启动心跳。非主线程使用后台线程代替 signal.alarm。"""
         self.running = True
-        
+
+        # 在非主线程/非主解释器中，signal 不可用
+        if threading.current_thread() is not threading.main_thread():
+            def loop():
+                while self.running:
+                    self.task_lock.update_heartbeat()
+                    time.sleep(self.task_lock.heartbeat_interval)
+            self._thread = threading.Thread(target=loop, daemon=True)
+            self._thread.start()
+            return
+
         def heartbeat_handler(signum, frame):
             if self.running:
                 self.task_lock.update_heartbeat()
@@ -229,4 +241,8 @@ class HeartbeatManager:
     def stop(self):
         """停止心跳"""
         self.running = False
-        signal.alarm(0)  # 取消定时器
+        if self._thread:
+            self._thread.join(timeout=1)
+            self._thread = None
+        else:
+            signal.alarm(0)  # 取消定时器
