@@ -258,9 +258,9 @@ class NumberHarvestScheduler:
 
     def run_scheduler(self) -> None:
         """运行调度器主循环。"""
-        # 启动后先执行一次同步，然后进入调度
-        self.logger.info("启动后先执行一次数据同步")
-        self.run_single_task("sync")
+        # 启动后先执行一次并行抓取+同步，然后进入调度
+        self.logger.info("启动后先执行一次并行抓取+同步")
+        self._execute_main_tasks()
 
         self.setup_schedule()
         self.logger.info("数字收获调度器启动（每10分钟同步，每5天抓取）")
