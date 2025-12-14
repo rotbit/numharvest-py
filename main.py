@@ -59,8 +59,8 @@ class NumberHarvestScheduler:
         self.postgres_settings = PostgresSettings()
         self.scrape_timeout_seconds = 3600
 
-    def _build_main_tasks(self) -> List[TaskDefinition]:
-        """构建两个抓取任务的定义。"""
+    def _build_scrape_tasks(self) -> List[TaskDefinition]:
+        """构建抓取任务列表。"""
         mongo = self.mongo_settings
         return [
             TaskDefinition(
@@ -87,29 +87,36 @@ class NumberHarvestScheduler:
                 ).run(),
                 timeout_seconds=self.scrape_timeout_seconds,
             ),
-            TaskDefinition(
-                key="sync",
-                label="数据同步",
-                runner=lambda: MongoToPostgreSQLSync(
-                    mongo_host=mongo.host,
-                    mongo_user=mongo.user,
-                    mongo_password=mongo.password,
-                    mongo_port=mongo.port,
-                    mongo_db=mongo.db,
-                    postgres_host=postgres.host,
-                    postgres_port=postgres.port,
-                    postgres_db=postgres.db,
-                    postgres_user=postgres.user,
-                    postgres_password=postgres.password,
-                    batch_size=1000,
-                    dry_run=False,
-                ).run(),
-                timeout_seconds=self.scrape_timeout_seconds,
-            )
         ]
 
+    def _build_sync_task(self) -> TaskDefinition:
+        """构建数据同步任务。"""
+        mongo = self.mongo_settings
+        postgres = self.postgres_settings
+        return TaskDefinition(
+            key="sync",
+            label="数据同步",
+            runner=lambda: MongoToPostgreSQLSync(
+                mongo_host=mongo.host,
+                mongo_user=mongo.user,
+                mongo_password=mongo.password,
+                mongo_port=mongo.port,
+                mongo_db=mongo.db,
+                postgres_host=postgres.host,
+                postgres_port=postgres.port,
+                postgres_db=postgres.db,
+                postgres_user=postgres.user,
+                postgres_password=postgres.password,
+                batch_size=1000,
+                dry_run=False,
+            ).run(),
+            timeout_seconds=self.scrape_timeout_seconds,
+        )
+
     def _task_map(self) -> Dict[str, TaskDefinition]:
-        tasks = {task.key: task for task in self._build_main_tasks()}
+        tasks = {task.key: task for task in self._build_scrape_tasks()}
+        sync_task = self._build_sync_task()
+        tasks[sync_task.key] = sync_task
         return tasks
 
     def _run_task(self, task: TaskDefinition) -> TaskResult:
