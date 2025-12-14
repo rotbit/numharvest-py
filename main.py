@@ -250,21 +250,21 @@ class NumberHarvestScheduler:
     def setup_schedule(self) -> None:
         """
         设置定时任务调度：
-        - 每小时执行一次数据同步
+        - 每10分钟执行一次数据同步
         - 每5天并行执行一次抓取（excellentnumbers + numberbarn）
         """
-        schedule.every().hour.do(lambda: self.run_single_task("sync"))
+        schedule.every(10).minutes.do(lambda: self.run_single_task("sync"))
         schedule.every(5).days.do(self.run_scrapers_only)
-        self.logger.info("定时任务调度设置完成：每小时同步，每5天抓取一次")
+        self.logger.info("定时任务调度设置完成：每10分钟同步，每5天抓取一次")
 
     def run_scheduler(self) -> None:
         """运行调度器主循环。"""
-        # 启动后先并行抓取一次，再进入调度
-        self.logger.info("启动后先执行一次并行抓取")
-        self.run_scrapers_only()
+        # 启动后先执行一次同步，然后进入调度
+        self.logger.info("启动后先执行一次数据同步")
+        self.run_single_task("sync")
 
         self.setup_schedule()
-        self.logger.info("数字收获调度器启动（每小时同步，每5天抓取）")
+        self.logger.info("数字收获调度器启动（每10分钟同步，每5天抓取）")
 
         try:
             while True:
