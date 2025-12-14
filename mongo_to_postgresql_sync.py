@@ -6,9 +6,11 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import psycopg2
-from psycopg2 import DatabaseError, sql
+from psycopg2 import DatabaseError
 from psycopg2.extras import execute_values
 from pymongo import MongoClient
+
+from state_codes import normalize_state, state_name
 
 
 class MongoToPostgreSQLSync:
@@ -203,74 +205,109 @@ class MongoToPostgreSQLSync:
     
     def normalize_mongo_data(self, documents: List[Dict], collection_name: str) -> List[Dict]:
         """
-        标准化MongoDB数据为MySQL phone_numbers 结构：
-        country_code, national_number, country, region, price_str, original_price, adjusted_price, source_url, source, updated_at
+        标准化MongoDB数据为 phone_numbers 表的字段：
+        country_code, area_code, local_number, country, state_code, state_name, price_str, price, source_url, source, updated_at
         """
-        normalized = []
+        normalized: List[Dict[str, Any]] = []
         for doc in documents:
-            phone_raw, price_str, source_url, source, country, region = self._extract_fields(doc, collection_name)
+            base = self._extract_fields(doc, collection_name)
+            phone_raw = base["phone"]
             if not phone_raw:
                 continue
 
-            country_code, national_number = self._split_phone(phone_raw)
-            original_price = self.price_str_to_int(price_str)
-            adjusted_price = int(original_price * 1.2) if original_price is not None else None
+            country_code, area_code, local_number = self._split_phone(phone_raw)
+            # 优先使用文档里的区号提示（如 numberbarn 的 npa）
+            area_code = base.get("area_code_hint") or area_code
+
+            if not area_code or not local_number:
+                continue
+
+            state_code, state_name = self._normalize_state(base.get("state"))
+            price_int = self.price_str_to_int(base.get("price_str", ""))
 
             normalized.append(
                 {
-                    "country_code": country_code,
-                    "national_number": national_number,
-                    "country": country,
-                    "region": region,
-                    "price_str": price_str,
-                    "original_price": original_price,
-                    "adjusted_price": adjusted_price,
-                    "source_url": source_url,
-                    "source": source,
-                    "updated_at": datetime.now(timezone.utc),
+                    "country_code": country_code or "1",
+                    "area_code": area_code,
+                    "local_number": local_number,
+                    "country": base.get("country") or "USA",
+                    "state_code": state_code,
+                    "state_name": state_name,
+                    "price_str": base.get("price_str"),
+                    "price": price_int,
+                    "source_url": base.get("source_url"),
+                    "source": base.get("source"),
+                    "updated_at": self._extract_timestamp(doc),
                 }
             )
 
         self.logger.info("标准化后得到 %d 条有效记录", len(normalized))
         return normalized
 
-    def _extract_fields(self, doc: Dict, collection_name: str) -> tuple:
-        """根据来源集合提取基础字段。"""
+    def _extract_fields(self, doc: Dict, collection_name: str) -> Dict[str, Any]:
+        """根据来源集合提取基础字段，兼容不同源字段名。"""
         if collection_name == "numbers":  # excellentnumbers
             phone = doc.get("phone", "")
             price = doc.get("price", "")
             url = doc.get("source_url", "")
             source = doc.get("source", "excellent_number")
             country = doc.get("country", "USA")
-            region = doc.get("region") or self._infer_region(url, collection_name)
+            state = doc.get("region") or self._infer_state_from_url(url, collection_name)
+            area_hint = None
         elif collection_name == "numberbarn_numbers":
             phone = doc.get("number", "")
             price = doc.get("price", "")
             url = doc.get("source_url", "")
             source = "numberbarn"
             country = doc.get("country", "USA")
-            region = doc.get("state") or self._infer_region(url, collection_name)
+            state = doc.get("state") or self._infer_state_from_url(url, collection_name)
+            area_hint = doc.get("npa")
         else:
             phone = doc.get("phone", doc.get("number", ""))
             price = doc.get("price", "")
             url = doc.get("source_url", doc.get("url", ""))
             source = doc.get("source", collection_name)
             country = doc.get("country", "USA")
-            region = doc.get("region") or self._infer_region(url, collection_name)
-        return phone, price, url, source, country, region
+            state = doc.get("region") or self._infer_state_from_url(url, collection_name)
+            area_hint = doc.get("area_code") or doc.get("npa")
 
-    def _split_phone(self, phone: str) -> tuple[str, str]:
-        """将原始号码拆为国家码和本机号；去除括号等符号，默认美国1。"""
+        return {
+            "phone": phone,
+            "price_str": price,
+            "source_url": url,
+            "source": source,
+            "country": country,
+            "state": state,
+            "area_code_hint": area_hint,
+        }
+
+    def _split_phone(self, phone: str) -> tuple[str, str, str]:
+        """拆分电话号码 -> (country_code, area_code, local_number)。仅处理常见的10位北美号码。"""
         digits = re.sub(r"\D", "", phone or "")
-        if len(digits) > 10:
-            return digits[:-10], digits[-10:]
-        if len(digits) == 11 and digits.startswith("1"):
-            return "1", digits[1:]
-        if len(digits) == 10:
-            return "1", digits
-        return "1", digits  # fallback
+        if not digits:
+            return "", "", ""
 
-    def _infer_region(self, url: str, collection_name: str) -> str:
+        country_code = "1"
+        national = digits
+
+        if len(digits) > 10:
+            national = digits[-10:]
+            country_code = digits[:-10] or "1"
+        elif len(digits) == 11 and digits.startswith("1"):
+            national = digits[1:]
+        elif len(digits) == 10:
+            national = digits
+        else:
+            return country_code, "", ""
+
+        if len(national) < 10:
+            return country_code, "", ""
+
+        area_code = national[:3]
+        local_number = national[3:]
+        return country_code, area_code, local_number
+
+    def _infer_state_from_url(self, url: str, collection_name: str) -> str:
         """从 URL 提取州/地区：excellentnumbers 用路径，numberbarn 用 state 参数。"""
         if not url:
             return ""
@@ -285,6 +322,29 @@ class MongoToPostgreSQLSync:
         except Exception:
             return ""
         return ""
+
+    def _extract_timestamp(self, doc: Dict[str, Any]) -> datetime:
+        """从文档里优先取时间字段，缺省用当前UTC时间。"""
+        for field in ("updated_at", "crawled_at", "created_at", "timestamp"):
+            ts = doc.get(field)
+            if isinstance(ts, datetime):
+                return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc)
+
+    def _normalize_state(self, state_value: Optional[str]) -> tuple[str, str]:
+        """标准化州字段，返回 (state_code, state_name)，依赖 state_codes 模块。"""
+        if not state_value:
+            return "", ""
+        s = str(state_value).strip()
+        if not s:
+            return "", ""
+
+        try:
+            code = normalize_state(s)
+            return code, state_name(code)
+        except ValueError:
+            # 未识别时返回空，让上游保持空值而非写入非法代码
+            return "", ""
 
     def insert_to_postgresql(self, data: List[Dict]) -> bool:
         """将数据插入PostgreSQL，拆分小步骤以便维护。"""
@@ -334,14 +394,14 @@ class MongoToPostgreSQLSync:
 
     # -------- Helper methods for PostgreSQL upsert pipeline --------
     def _deduplicate_input(self, data: List[Dict]) -> List[Dict]:
-        """对输入列表按 country_code+national_number 去重，保留最新 updated_at 的记录。"""
+        """对输入列表按 area_code+local_number 去重，保留最新 updated_at 的记录。"""
         unique: Dict[str, Dict] = {}
         for record in data:
-            cc = record.get("country_code")
-            num = record.get("national_number")
-            if not cc or not num:
+            area = record.get("area_code")
+            local = record.get("local_number")
+            if not area or not local:
                 continue
-            key = f"{cc}:{num}"
+            key = f"{area}:{local}"
             if key not in unique or record["updated_at"] > unique[key]["updated_at"]:
                 unique[key] = record
         if len(unique) < len(data):
@@ -354,17 +414,27 @@ class MongoToPostgreSQLSync:
             yield data[i : i + self.batch_size]
 
     def _fetch_existing_records(self, cursor, batch: List[Dict]) -> Dict[str, tuple]:
-        """一次查询批次中已有的号码记录，键为 country_code:national_number。"""
-        keys = [(r["country_code"], r["national_number"]) for r in batch]
+        """一次查询批次中已有的号码记录，键为 area_code:local_number。"""
+        keys = [(r["area_code"], r["local_number"]) for r in batch]
         if not keys:
             return {}
 
         # 使用显式 VALUES 列表，避免 ANY(array) 触发 unknown 类型的哈希错误
         values_sql = ",".join(cursor.mogrify("(%s,%s)", k).decode() for k in keys)
         query = f"""
-            SELECT country_code, national_number, price_str, original_price, source_url, source
+            SELECT
+                area_code,
+                local_number,
+                price_str,
+                price,
+                source_url,
+                source,
+                country_code,
+                country,
+                state_code,
+                state_name
             FROM phone_numbers
-            WHERE (country_code, national_number) IN ({values_sql})
+            WHERE (area_code, local_number) IN ({values_sql})
         """
         cursor.execute(query)
         return {f"{row[0]}:{row[1]}": row for row in cursor.fetchall()}
@@ -378,17 +448,32 @@ class MongoToPostgreSQLSync:
         skipped = 0
 
         for record in batch:
-            key = f"{record['country_code']}:{record['national_number']}"
+            key = f"{record['area_code']}:{record['local_number']}"
             if key not in existing:
                 to_insert.append(record)
                 continue
 
-            _, _, price_str, original_price, source_url, source = existing[key]
+            (
+                _,
+                _,
+                price_str,
+                price,
+                source_url,
+                source,
+                existing_cc,
+                existing_country,
+                existing_state_code,
+                existing_state_name,
+            ) = existing[key]
             if (
-                record["price_str"] != price_str
-                or record["original_price"] != original_price
-                or record["source_url"] != source_url
-                or record["source"] != source
+                record.get("price_str") != price_str
+                or record.get("price") != price
+                or record.get("source_url") != source_url
+                or record.get("source") != source
+                or record.get("country_code") != existing_cc
+                or record.get("country") != existing_country
+                or (record.get("state_code") or "") != (existing_state_code or "")
+                or (record.get("state_name") or "") != (existing_state_name or "")
             ):
                 to_update.append(record)
             else:
@@ -401,14 +486,15 @@ class MongoToPostgreSQLSync:
             return
         query = """
             INSERT INTO phone_numbers
-            (country_code, national_number, country, region, price_str, original_price, adjusted_price, source_url, source, updated_at)
+            (country_code, area_code, local_number, country, state_code, state_name, price_str, price, source_url, source, updated_at)
             VALUES %s
-            ON CONFLICT (country_code, national_number) DO UPDATE SET
+            ON CONFLICT (area_code, local_number) DO UPDATE SET
+                country_code = EXCLUDED.country_code,
                 country = EXCLUDED.country,
-                region = EXCLUDED.region,
+                state_code = EXCLUDED.state_code,
+                state_name = EXCLUDED.state_name,
                 price_str = EXCLUDED.price_str,
-                original_price = EXCLUDED.original_price,
-                adjusted_price = EXCLUDED.adjusted_price,
+                price = EXCLUDED.price,
                 source_url = EXCLUDED.source_url,
                 source = EXCLUDED.source,
                 updated_at = EXCLUDED.updated_at
@@ -416,12 +502,13 @@ class MongoToPostgreSQLSync:
         values = [
             (
                 r["country_code"],
-                r["national_number"],
+                r["area_code"],
+                r["local_number"],
                 r["country"],
-                r["region"],
+                r["state_code"],
+                r["state_name"],
                 r["price_str"],
-                r["original_price"],
-                r["adjusted_price"],
+                r["price"],
                 r["source_url"],
                 r["source"],
                 r["updated_at"],
