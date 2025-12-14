@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
-主调度程序 - 定时执行任务并同步数据
+主调度程序 - 多进程定时执行抓取与同步。
+
+需求：
+1) 每个爬虫任务单独进程，跑完后休眠5天再跑。
+2) 同步任务单独进程，跑完后休眠1分钟再跑。
+3) 不搞复杂参数，保证抓取和同步能长期跑即可。
 """
+
 from __future__ import annotations
 
 import logging
-import os
+import multiprocessing as mp
 import sys
-import time
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List
+from typing import Any, Dict
 
 from excellentnumberstask import AreaCodeNumbersHarvester
 from mongo_to_postgresql_sync import MongoToPostgreSQLSync
@@ -20,20 +23,25 @@ from numberbarntask import NumberbarnNumberExtractor
 from settings import MongoSettings, PostgresSettings
 from task_lock import HeartbeatManager, TaskLock
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("numharvest_scheduler.log"), logging.StreamHandler()],
-)
+# ----- 调度参数 -----
+SCRAPER_INTERVAL_SECONDS = 5 * 24 * 60 * 60  # 5天
+SYNC_INTERVAL_SECONDS = 60  # 1分钟
+LOCK_TIMEOUT_MINUTES = 180
+
+TASK_LABELS: Dict[str, str] = {
+    "excellentnumbers": "excellentnumbers 爬虫",
+    "numberbarn": "numberbarn 爬虫",
+    "sync": "Mongo -> PostgreSQL 同步",
+}
 
 
-@dataclass(frozen=True)
-class TaskDefinition:
-    key: str
-    label: str
-    runner: Callable[[], Any]
-    timeout_seconds: int = 3600
+def configure_logging(level: int = logging.INFO) -> None:
+    """为当前进程设置统一日志格式。"""
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(processName)s] %(levelname)s - %(message)s",
+        handlers=[logging.FileHandler("numharvest_scheduler.log"), logging.StreamHandler()],
+    )
 
 
 @dataclass(frozen=True)
@@ -45,300 +53,174 @@ class TaskResult:
     payload: Any = None
 
 
-class NumberHarvestScheduler:
-    def __init__(self) -> None:
-        self.logger = logging.getLogger(__name__)
+def _run_task_payload(task_key: str, mongo: MongoSettings, postgres: PostgresSettings) -> Any:
+    """实际执行单个任务的主体，保持简单可pickle。"""
+    if task_key == "excellentnumbers":
+        return AreaCodeNumbersHarvester(
+            mongo_host=mongo.host,
+            mongo_user=mongo.user,
+            mongo_password=mongo.password,
+            mongo_port=mongo.port,
+            mongo_db=mongo.db,
+            mongo_collection=mongo.collection,
+            headless=True,
+        ).run(index_path_or_dir=".", limit=None, max_numbers=None)
 
-        self.mongo_settings = MongoSettings()
-        self.postgres_settings = PostgresSettings()
-        self.scrape_timeout_seconds = 3600
+    if task_key == "numberbarn":
+        return NumberbarnNumberExtractor(
+            mongo_host=mongo.host,
+            mongo_password=mongo.password,
+            mongo_db=mongo.db,
+        ).run()
 
-    def _build_scrape_tasks(self) -> List[TaskDefinition]:
-        """构建抓取任务列表。"""
-        mongo = self.mongo_settings
-        return [
-            TaskDefinition(
-                key="excellentnumbers",
-                label="excellentnumbers",
-                runner=lambda: AreaCodeNumbersHarvester(
-                    mongo_host=mongo.host,
-                    mongo_user=mongo.user,
-                    mongo_password=mongo.password,
-                    mongo_port=mongo.port,
-                    mongo_db=mongo.db,
-                    mongo_collection=mongo.collection,
-                    headless=True,
-                ).run(".", None),
-                timeout_seconds=self.scrape_timeout_seconds,
-            ),
-            TaskDefinition(
-                key="numberbarn",
-                label="numberbarn",
-                runner=lambda: NumberbarnNumberExtractor(
-                    mongo_host=mongo.host,
-                    mongo_password=mongo.password,
-                    mongo_db=mongo.db,
-                ).run(),
-                timeout_seconds=self.scrape_timeout_seconds,
-            ),
-        ]
+    if task_key == "sync":
+        return MongoToPostgreSQLSync(
+            mongo_host=mongo.host,
+            mongo_user=mongo.user,
+            mongo_password=mongo.password,
+            mongo_port=mongo.port,
+            mongo_db=mongo.db,
+            postgres_host=postgres.host,
+            postgres_port=postgres.port,
+            postgres_db=postgres.db,
+            postgres_user=postgres.user,
+            postgres_password=postgres.password,
+            batch_size=1000,
+            dry_run=False,
+        ).run()
 
-    def _build_sync_task(self) -> TaskDefinition:
-        """构建数据同步任务。"""
-        mongo = self.mongo_settings
-        postgres = self.postgres_settings
-        return TaskDefinition(
-            key="sync",
-            label="数据同步",
-            runner=lambda: MongoToPostgreSQLSync(
-                mongo_host=mongo.host,
-                mongo_user=mongo.user,
-                mongo_password=mongo.password,
-                mongo_port=mongo.port,
-                mongo_db=mongo.db,
-                postgres_host=postgres.host,
-                postgres_port=postgres.port,
-                postgres_db=postgres.db,
-                postgres_user=postgres.user,
-                postgres_password=postgres.password,
-                batch_size=1000,
-                dry_run=False,
-            ).run(),
-            timeout_seconds=self.scrape_timeout_seconds,
-        )
+    raise ValueError(f"未知任务类型: {task_key}")
 
-    def _task_map(self) -> Dict[str, TaskDefinition]:
-        tasks = {task.key: task for task in self._build_scrape_tasks()}
-        sync_task = self._build_sync_task()
-        tasks[sync_task.key] = sync_task
-        return tasks
 
-    def _run_task(self, task: TaskDefinition) -> TaskResult:
-        """统一的任务执行方法，按单任务独立锁互斥。"""
-        lock = TaskLock(
-            lock_file=f"numharvest_{task.key}.lock",
-            timeout_minutes=120,
-            heartbeat_interval=30,
-        )
-        lock_status = lock.get_lock_status()
-        if lock_status["locked"]:
-            self.logger.warning("任务[%s]已在运行，跳过本次执行: %s", task.label, lock_status["message"])
-            return TaskResult(task.key, task.label, False, f"{task.label} 正在运行，跳过", None)
+def run_task_once(
+    task_key: str,
+    mongo: MongoSettings,
+    postgres: PostgresSettings,
+    log: logging.Logger,
+) -> TaskResult:
+    """带锁执行一次任务。"""
+    label = TASK_LABELS.get(task_key, task_key)
+    lock = TaskLock(
+        lock_file=f"numharvest_{task_key}.lock",
+        timeout_minutes=LOCK_TIMEOUT_MINUTES,
+        heartbeat_interval=30,
+    )
+    lock_status = lock.get_lock_status()
+    if lock_status["locked"]:
+        msg = f"{label} 已在运行，跳过本次执行"
+        log.warning("%s: %s", label, lock_status.get("message", msg))
+        return TaskResult(task_key, label, False, msg, None)
 
-        start_time = datetime.now()
-        self.logger.info("开始执行%s任务", task.label)
+    start = datetime.now()
+    success = False
+    payload = None
+    message = ""
 
-        try:
-            with lock:
-                heartbeat = HeartbeatManager(lock)
-                heartbeat.start()
-                try:
-                    result = task.runner()
-                    success = True
-                    message = f"{task.label}任务成功完成"
-                except Exception as exc:  # noqa: B902
-                    success = False
-                    result = None
-                    message = f"执行{task.label}任务时出错: {exc}"
-                    self.logger.error(message, exc_info=True)
-                finally:
-                    heartbeat.stop()
-        except RuntimeError as exc:
-            self.logger.warning("获取任务[%s]锁失败: %s", task.label, exc)
-            return TaskResult(task.key, task.label, False, f"无法获取锁: {exc}", None)
+    try:
+        with lock:
+            hb = HeartbeatManager(lock)
+            hb.start()
+            try:
+                payload = _run_task_payload(task_key, mongo, postgres)
+                success = True
+                message = f"{label} 完成"
+            finally:
+                hb.stop()
+    except RuntimeError as exc:
+        message = f"无法获取锁: {exc}"
+        log.warning("%s", message)
+        return TaskResult(task_key, label, False, message, None)
+    except Exception as exc:  # noqa: B902
+        message = f"{label} 执行出错: {exc}"
+        log.exception(message)
+        success = False
 
-        duration = (datetime.now() - start_time).total_seconds()
-        if success:
-            self.logger.info("%s任务完成，耗时: %.2f秒", task.label, duration)
-        else:
-            self.logger.error("%s任务失败，耗时: %.2f秒", task.label, duration)
-        return TaskResult(task.key, task.label, success, message, result)
+    duration = (datetime.now() - start).total_seconds()
+    message = f"{message}，耗时 {duration:.1f} 秒"
+    if success:
+        log.info("%s", message)
+    else:
+        log.error("%s", message)
+    return TaskResult(task_key, label, success, message, payload)
 
-    def _run_tasks_in_parallel(self, tasks: List[TaskDefinition]) -> List[TaskResult]:
-        """并行执行任务并收集结果，不做超时终止控制。"""
-        if not tasks:
-            return []
 
-        results: List[TaskResult] = []
-        with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
-            future_map = {executor.submit(self._run_task, task): task for task in tasks}
+def task_worker(
+    task_key: str,
+    interval_seconds: int,
+    stop_event: mp.Event,
+    mongo: MongoSettings,
+    postgres: PostgresSettings,
+) -> None:
+    """子进程工作循环：执行一次，休眠固定时间，再重复。"""
+    configure_logging()
+    logger = logging.getLogger(f"worker.{task_key}")
+    label = TASK_LABELS.get(task_key, task_key)
+    logger.info("启动 %s 进程，间隔 %d 秒", label, interval_seconds)
 
-            for future, task in future_map.items():
-                try:
-                    results.append(future.result())
-                except Exception as exc:  # noqa: B902
-                    self.logger.error("并行任务 %s 执行失败: %s", task.label, exc, exc_info=True)
-                    results.append(TaskResult(task.key, task.label, False, f"任务执行失败: {exc}", None))
+    while not stop_event.is_set():
+        result = run_task_once(task_key, mongo, postgres, logger)
+        logger.info("%s 结果: %s", label, result.message)
+        logger.info("%s 下一次执行将在 %d 秒后", label, interval_seconds)
+        if stop_event.wait(interval_seconds):
+            break
 
-        return results
-
-    def _execute_main_tasks(self) -> None:
-        """并行执行抓取任务和数据同步任务（同一批次同时启动）。"""
-        start_time = datetime.now()
-        self.logger.info("开始并行执行：抓取 + 数据同步")
-
-        tasks = self._build_scrape_tasks()
-        tasks.append(self._build_sync_task())
-
-        results = self._run_tasks_in_parallel(tasks)
-
-        for result in results:
-            status = "✅" if result.success else "❌"
-            self.logger.info("%s 任务 %s 结果: %s", status, result.label, result.message)
-
-        duration = (datetime.now() - start_time).total_seconds()
-        self.logger.info("本轮并行任务完成，总耗时: %.2f秒", duration)
-    
-    def run_test_flow(self, max_numbers: int = 10) -> None:
-        """测试流程：先excellentnumbers抓10条，再numberbarn抓10条，最后同步。"""
-        def _task_body() -> None:
-            mongo = self.mongo_settings
-            self.logger.info("开始测试抓取 excellentnumbers (最多 %d 条)", max_numbers)
-            excel_result = AreaCodeNumbersHarvester(
-                mongo_host=mongo.host,
-                mongo_user=mongo.user,
-                mongo_password=mongo.password,
-                mongo_port=mongo.port,
-                mongo_db=mongo.db,
-                mongo_collection=mongo.collection,
-                headless=True,
-            ).run(max_numbers=max_numbers)
-            self.logger.info("excellentnumbers 抓取完成: %s", excel_result)
-
-            self.logger.info("开始测试抓取 numberbarn (最多 %d 条)", max_numbers)
-            nb_result = NumberbarnNumberExtractor(
-                mongo_host=mongo.host,
-                mongo_password=mongo.password,
-                mongo_db=mongo.db,
-            ).run(max_numbers=max_numbers)
-            self.logger.info("numberbarn 抓取完成，数量: %d", len(nb_result) if nb_result else 0)
-
-            self.logger.info("开始执行数据同步")
-            self._run_task(self._build_sync_task())
-
-        self._with_task_lock(_task_body)
-
-    def run_parallel_scraping_and_sync(self) -> None:
-        """并行执行抓取任务，完成后同步数据。"""
-        self._with_task_lock(self._execute_main_tasks)
-
-    def run_scrapers_only(self) -> None:
-        """仅并行抓取，不做同步。"""
-        def _task_body() -> None:
-            self.logger.info("开始仅抓取任务（excellentnumbers + numberbarn）")
-            self._run_tasks_in_parallel(self._build_scrape_tasks())
-        self._with_task_lock(_task_body)
-
-    def run_scheduler(self) -> None:
-        """简单循环：执行一轮抓取+同步，完成后sleep 10 分钟再执行。"""
-        try:
-            while True:
-                self.logger.info("启动一轮抓取+同步")
-                self._execute_main_tasks()
-                self.logger.info("本轮结束，休眠600秒")
-                time.sleep(60)
-        except KeyboardInterrupt:
-            self.logger.info("调度器停止（收到Ctrl+C）")
-
-    def run_single_task(self, task_type: str) -> None:
-        """执行单个任务。"""
-
-        def _task_body() -> None:
-            task = self._task_map().get(task_type)
-            if not task:
-                self.logger.error("未知任务类型: %s", task_type)
-                return
-
-            result = self._run_task(task)
-            status = "✅" if result.success else "❌"
-            self.logger.info("%s 单独执行%s任务结果: %s", status, task_type, result.message)
-
-        self._with_task_lock(_task_body)
-
-    def get_task_status(self) -> Dict[str, Any]:
-        """获取任务状态。"""
-        lock_status = self.task_lock.get_lock_status()
-
-        if lock_status["locked"]:
-            self.logger.info("📍 %s", lock_status["message"])
-            self.logger.info("   开始时间: %s", lock_status.get("start_time", "未知"))
-            self.logger.info("   最后心跳: %s", lock_status.get("last_heartbeat", "未知"))
-        else:
-            self.logger.info("📍 当前没有任务在运行")
-            if lock_status.get("stale"):
-                self.logger.info("   发现过期锁: %s", lock_status["message"])
-
-        return lock_status
-
-    def force_unlock(self) -> bool:
-        """强制解锁（用于清理卡死的任务）。"""
-        lock_status = self.task_lock.get_lock_status()
-
-        if not lock_status["locked"]:
-            self.logger.info("📍 当前没有活跃的锁")
-            return True
-
-        self.logger.warning("⚠️ 强制清理任务锁: %s", lock_status["message"])
-
-        try:
-            if os.path.exists(self.task_lock.lock_file):
-                os.unlink(self.task_lock.lock_file)
-                self.logger.info("✅ 锁文件已删除")
-                return True
-        except Exception as exc:  # noqa: B902
-            self.logger.error("❌ 删除锁文件失败: %s", exc)
-            return False
-        return False
+    logger.info("%s 收到停止信号，退出", label)
 
 
 def main() -> None:
-    """主函数。"""
-    scheduler = NumberHarvestScheduler()
+    configure_logging()
+    mongo = MongoSettings()
+    postgres = PostgresSettings()
+    stop_event = mp.Event()
 
-    if len(sys.argv) == 1:
-        scheduler.run_scheduler()
+    if len(sys.argv) == 3 and sys.argv[1] == "--once":
+        task_key = sys.argv[2]
+        logger = logging.getLogger(f"once.{task_key}")
+        result = run_task_once(task_key, mongo, postgres, logger)
+        status = "✅" if result.success else "❌"
+        print(f"{status} {result.label}: {result.message}")
         return
 
-    command = sys.argv[1]
+    if len(sys.argv) > 1:
+        print("用法: python main.py            # 启动常驻进程")
+        print("     python main.py --once <task>")
+        return
 
-    if command == "--parallel":
-        scheduler.logger.info("立即执行一次并行任务，然后启动定时调度器")
-        scheduler.run_parallel_scraping_and_sync()
-        scheduler.run_scheduler()
-    elif command == "--test":
-        scheduler.run_test_flow(max_numbers=1)
-    elif command == "--excellentnumbers":
-        scheduler.run_single_task("excellentnumbers")
-    elif command == "--numberbarn":
-        scheduler.run_single_task("numberbarn")
-    elif command == "--sync":
-        scheduler.run_single_task("sync")
-    elif command == "--status":
-        scheduler.get_task_status()
-    elif command == "--unlock":
-        scheduler.force_unlock()
-    elif command in ("--help", "-h"):
-        print("NumHarvest 任务调度器")
-        print("")
-        print("用法:")
-        print("  python main.py                    # 启动定时调度器")
-        print("  python main.py --parallel         # 立即执行一次，然后定时执行")
-        print("  python main.py --test             # 只执行一次测试")
-        print("  python main.py --excellentnumbers # 只执行excellentnumbers")
-        print("  python main.py --numberbarn       # 只执行numberbarn")
-        print("  python main.py --sync             # 只执行数据同步")
-        print("  python main.py --status           # 查看任务状态")
-        print("  python main.py --unlock           # 强制解锁卡死的任务")
-        print("")
-        print("任务安全机制:")
-        print("  - 使用文件锁防止重复执行")
-        print("  - 任务超时时间: 2小时")
-        print("  - 心跳检测间隔: 30秒")
-        print("  - 支持跨进程互斥")
-    else:
-        print("未知命令:", command)
-        print("使用 'python main.py --help' 查看帮助")
+    # 启动三个简单的子进程
+    processes: Dict[str, mp.Process] = {}
+    specs = {
+        "excellentnumbers": SCRAPER_INTERVAL_SECONDS,
+        "numberbarn": SCRAPER_INTERVAL_SECONDS,
+        "sync": SYNC_INTERVAL_SECONDS,
+    }
+    for key, interval in specs.items():
+        p = mp.Process(
+            target=task_worker,
+            name=f"{key}_worker",
+            args=(key, interval, stop_event, mongo, postgres),
+            daemon=False,
+        )
+        p.start()
+        processes[key] = p
+        logging.getLogger("main").info("启动 %s (pid=%s)", key, p.pid)
+
+    try:
+        # 主进程保持阻塞，等待 Ctrl+C
+        for p in processes.values():
+            p.join()
+    except KeyboardInterrupt:
+        logging.getLogger("main").info("收到退出信号，准备关闭所有任务")
+        stop_event.set()
+        for p in processes.values():
+            p.join(timeout=20)
+    logging.getLogger("main").info("调度器已退出")
 
 
 if __name__ == "__main__":
+    # macOS / Windows 默认 spawn，Linux 使用 fork 即可；spawn 最安全可移植。
+    try:
+        mp.set_start_method("spawn", force=True)
+    except RuntimeError:
+        # start method 已设置时忽略
+        pass
     main()
