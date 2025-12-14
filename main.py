@@ -25,7 +25,7 @@ from task_lock import HeartbeatManager, TaskLock
 
 # ----- 调度参数 -----
 SCRAPER_INTERVAL_SECONDS = 5 * 24 * 60 * 60  # 5天
-SYNC_INTERVAL_SECONDS = 60  # 1分钟
+SYNC_INTERVAL_SECONDS = 60 * 30  # 半小时
 LOCK_TIMEOUT_MINUTES = 180
 
 TASK_LABELS: Dict[str, str] = {
