@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, List
@@ -134,7 +134,7 @@ class NumberHarvestScheduler:
             return TaskResult(task.key, task.label, False, f"执行{task.label}任务时出错: {exc}", None)
 
     def _run_tasks_in_parallel(self, tasks: List[TaskDefinition]) -> List[TaskResult]:
-        """并行执行任务并收集结果。"""
+        """并行执行任务并收集结果，不做超时终止控制。"""
         if not tasks:
             return []
 
@@ -144,12 +144,9 @@ class NumberHarvestScheduler:
 
             for future, task in future_map.items():
                 try:
-                    results.append(future.result(timeout=task.timeout_seconds))
-                except FuturesTimeout as exc:
-                    self.logger.error("并行任务 %s 超时: %s", task.label, exc)
-                    results.append(TaskResult(task.key, task.label, False, f"任务执行超时: {exc}", None))
+                    results.append(future.result())
                 except Exception as exc:  # noqa: B902
-                    self.logger.error("并行任务 %s 执行失败: %s", task.label, exc)
+                    self.logger.error("并行任务 %s 执行失败: %s", task.label, exc, exc_info=True)
                     results.append(TaskResult(task.key, task.label, False, f"任务执行失败: {exc}", None))
 
         return results
@@ -183,29 +180,21 @@ class NumberHarvestScheduler:
         return False
 
     def _execute_main_tasks(self) -> None:
-        """执行抓取+同步的主逻辑。"""
+        """并行执行抓取任务和数据同步任务（同一批次同时启动）。"""
         start_time = datetime.now()
-        self.logger.info("开始执行数据抓取和同步任务")
+        self.logger.info("开始并行执行：抓取 + 数据同步")
 
-        scrape_results = self._run_tasks_in_parallel(self._build_scrape_tasks())
-        success_count = sum(1 for result in scrape_results if result.success)
-        failed_count = len(scrape_results) - success_count
+        tasks = self._build_scrape_tasks()
+        tasks.append(self._build_sync_task())
 
-        for result in scrape_results:
+        results = self._run_tasks_in_parallel(tasks)
+
+        for result in results:
             status = "✅" if result.success else "❌"
             self.logger.info("%s 任务 %s 结果: %s", status, result.label, result.message)
 
-        if success_count == 0:
-            self.logger.warning("⚠️ 所有 %d 个抓取任务均失败，仍然继续执行数据同步以保证一致性", len(scrape_results))
-        else:
-            self.logger.info("有 %d 个抓取任务成功，%d 个失败，开始数据同步", success_count, failed_count)
-
-        sync_result = self._run_task(self._build_sync_task())
         duration = (datetime.now() - start_time).total_seconds()
-        if sync_result.success:
-            self.logger.info("✅ 数据同步成功完成，总耗时: %.2f秒", duration)
-        else:
-            self.logger.error("❌ 数据同步失败，总耗时: %.2f秒", duration)
+        self.logger.info("本轮并行任务完成，总耗时: %.2f秒", duration)
     
     def run_test_flow(self, max_numbers: int = 10) -> None:
         """测试流程：先excellentnumbers抓10条，再numberbarn抓10条，最后同步。"""
