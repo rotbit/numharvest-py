@@ -38,6 +38,8 @@ class ExcellentNumbersScraper:
     # 价格格式 $1,234 或 $99.99
     PRICE_RE = re.compile(r"\$\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?")
     NEXT_TEXT_CANDIDATES = {"next", ">", "»", "next »", "older", "下一页"}
+    RESERVED_KEYWORDS = {"contact us", "reserved", "sold"}
+    NEW_NUMBERS_RE = re.compile(r"\bnew\s+numbers\b", re.IGNORECASE)
 
     def __init__(
         self,
@@ -128,12 +130,26 @@ class ExcellentNumbersScraper:
         return s.strip()
 
     @classmethod
+    def _is_valid_phone(cls, s: str) -> bool:
+        """Only accept US/CA 10-digit numbers after cleaning."""
+        digits = re.sub(r"\D", "", s)
+        return len(digits) == 10
+
+    @classmethod
+    def _is_reserved(cls, text: str, price: str = "") -> bool:
+        t = (text or "").lower()
+        p = (price or "").lower()
+        return any(k in t for k in cls.RESERVED_KEYWORDS) or any(
+            k in p for k in cls.RESERVED_KEYWORDS
+        )
+
+    @classmethod
     def _extract_site_specific(cls, soup: BeautifulSoup) -> List[Dict[str, str]]:
         results = []
         containers = soup.select("div, li, article, tr, section")
         for c in containers:
             text = c.get_text(" ", strip=True)
-            if not text:
+            if not text or cls._is_reserved(text):
                 continue
             phones = cls.PHONE_RE.findall(text)
             prices = cls.PRICE_RE.findall(text)
@@ -149,10 +165,13 @@ class ExcellentNumbersScraper:
         """针对 excellentnumbers 产品卡片结构的精准提取，更稳健。"""
         rows: List[Dict[str, str]] = []
         for card in soup.select(".ProductList li .ProductImage"):
+            card_text = card.get_text(" ", strip=True)
             phone_el = card.select_one(".ProductDetails a")
             price_el = card.select_one(".ProductPriceRating em")
             phone = phone_el.get_text(strip=True) if phone_el else ""
             price = price_el.get_text(strip=True) if price_el else ""
+            if cls._is_reserved(card_text, price):
+                continue
             if phone:
                 rows.append({"phone": cls._clean_phone(phone), "price": price})
         dedup = {(r["phone"], r["price"]): r for r in rows}
@@ -176,6 +195,7 @@ class ExcellentNumbersScraper:
     @classmethod
     def _extract_pairs_from_html(cls, html: str) -> List[Dict[str, str]]:
         soup = BeautifulSoup(html, "lxml")
+        cls._remove_new_numbers_section(soup)
         # 1) 优先用精确的卡片选择器，避免因页面结构噪音漏掉价格
         rows = cls._extract_cards(soup)
         # 2) 回退到通用/原有逻辑
@@ -183,7 +203,52 @@ class ExcellentNumbersScraper:
             rows = cls._extract_site_specific(soup)
         if not rows:
             rows = cls._extract_generic(soup)
-        return rows
+        return cls._filter_available_rows(rows)
+
+    @classmethod
+    def _remove_new_numbers_section(cls, soup: BeautifulSoup) -> None:
+        """
+        跳过右侧“New Numbers”模块，以防误采集红框区域。
+        策略：找到包含“New Numbers”文本的节点，向上找到最近的容器（section/div/aside/li/ul），整体移除。
+        """
+        targets = []
+        for txt in soup.find_all(string=cls.NEW_NUMBERS_RE):
+            # 可能是标题文本，向上找一个合适的容器
+            container = None
+            for anc in txt.parents:
+                if anc.name in ("section", "div", "aside", "li", "ul"):
+                    container = anc
+                    break
+            if container:
+                targets.append(container)
+        for node in targets:
+            try:
+                node.decompose()
+            except Exception:
+                pass
+
+    @classmethod
+    def _filter_available_rows(cls, rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Drop reserved/contact-us cards and non-10-digit phones."""
+        filtered: List[Dict[str, str]] = []
+        for r in rows:
+            phone_raw = r.get("phone", "")
+            price_raw = (r.get("price") or "").strip()
+
+            if cls._is_reserved("", price_raw):
+                continue
+            if not cls._is_valid_phone(phone_raw):
+                continue
+            if not price_raw:
+                continue
+            if not cls.PRICE_RE.search(price_raw):
+                # 忽略没有标价或无法匹配价格格式的卡片
+                continue
+
+            filtered.append({"phone": cls._clean_phone(phone_raw), "price": price_raw})
+
+        dedup = {(r["phone"], r["price"]): r for r in filtered}
+        return list(dedup.values())
 
     # ---------- 分页 ----------
     @classmethod
