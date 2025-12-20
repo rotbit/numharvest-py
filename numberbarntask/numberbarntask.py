@@ -5,11 +5,11 @@ import random
 import re
 import time
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import requests
 from playwright.async_api import async_playwright
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING
 from progress_tracker import MongoCrawlHistory
 
 DEFAULT_JSON_FILE = "/tmp/numberbarn_state_npa_cache.json"  # 本地文件存储路径
@@ -50,6 +50,7 @@ class NumberbarnNumberExtractor:
         self.mongo_client = None
         self.db = None
         self.collection = None
+        self.html_collection = None
 
         # 初始化MongoDB连接
         self.init_mongodb()
@@ -61,14 +62,43 @@ class NumberbarnNumberExtractor:
             self.mongo_client = MongoClient(connection_string)
             self.db = self.mongo_client[self.mongo_db]
             self.collection = self.db['numbers']
+            self.html_collection = self.db['page_html']
 
             # 测试连接
             self.mongo_client.admin.command('ping')
             print(f"成功连接到MongoDB数据库: {self.mongo_db}")
 
+            # 索引：号码唯一；HTML 按来源+URL 唯一
+            self.collection.create_index("phone", unique=True)
+            self.html_collection.create_index([("source", ASCENDING), ("url", ASCENDING)], unique=True)
+            self.html_collection.create_index("fetched_at")
+
         except Exception as e:
             print(f"MongoDB连接失败: {e}")
             self.mongo_client = None
+
+    def _save_html_snapshot(self, url: str, html: str, meta: Optional[Dict[str, str]] = None) -> None:
+        """将原始页面 HTML 保存到 MongoDB（source=url 唯一）。"""
+        if not self.html_collection or not url or not html:
+            return
+
+        now = datetime.utcnow()
+        try:
+            self.html_collection.update_one(
+                {"source": "numberbarn", "url": url},
+                {
+                    "$set": {
+                        "html": html,
+                        "meta": meta or {},
+                        "fetched_at": now,
+                        "updated_at": now,
+                    },
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+            )
+        except Exception as exc:
+            print(f"  [WARN] 保存 HTML 失败 {url}: {exc}")
 
     def get_combinations_from_file(self, json_file: str = DEFAULT_JSON_FILE) -> List[Dict]:
         """从本地JSON文件获取state和npa的组合"""
@@ -239,6 +269,12 @@ class NumberbarnNumberExtractor:
     async def _scrape_current_page(self, page, state: str, npa: str, page_number: int) -> List[Dict]:
         """抓取当前页、补全元数据并即时写入 Mongo。"""
         print(f"  正在提取第 {page_number} 页数据...")
+        html = await page.content()
+        self._save_html_snapshot(
+            page.url,
+            html,
+            meta={"state": state, "npa": npa, "page": page_number},
+        )
         raw_numbers = await page.evaluate(JS_EXTRACT_SCRIPT) or []
         annotated = self._annotate_numbers(raw_numbers, state, npa, page_number, page.url)
 

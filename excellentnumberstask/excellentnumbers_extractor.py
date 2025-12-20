@@ -86,7 +86,12 @@ class ExcellentNumbersScraper:
         uri = f"mongodb://{mongo_user}:{mongo_password}@{mongo_host}:{mongo_port}/?authSource=admin"
         self.mongo = MongoClient(uri)
         self.col = self.mongo[mongo_db][mongo_collection]
+        self.html_col = self.mongo[mongo_db]["page_html"]
         # 唯一索引（保持你原来的：仅 phone 唯一）
+        self.col.create_index("phone", unique=True)
+        # HTML 按 source+url 唯一，便于覆写最新页面
+        self.html_col.create_index([("source", ASCENDING), ("url", ASCENDING)], unique=True)
+        self.html_col.create_index("fetched_at")
 
     # ---------- 人类化动作 ----------
     def _human_sleep(self):
@@ -226,6 +231,29 @@ class ExcellentNumbersScraper:
         else:
             print(f"[MONGO] skipped={len(rows)} (all records identical)")
 
+    # ---------- HTML 原文存档 ----------
+    def _save_html_snapshot(self, url: str, html: str, page_no: int) -> None:
+        """将原始页面 HTML 保存到 MongoDB，去重键为 source+url。"""
+        if not url or not html:
+            return
+        now = datetime.now(timezone.utc)
+        try:
+            self.html_col.update_one(
+                {"source": "excellent_numbers", "url": url},
+                {
+                    "$set": {
+                        "html": html,
+                        "page_no": page_no,
+                        "fetched_at": now,
+                        "updated_at": now,
+                    },
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+            )
+        except Exception as exc:
+            print(f"[WARN] 保存 HTML 失败 {url}: {exc}")
+
     # ---------- 抓取主流程 ----------
     async def scrape(self, url: str) -> List[Dict[str, str]]:
         """抓取并返回本轮抓到的 (phone, price) 去重列表（同时已写入 Mongo）。"""
@@ -249,6 +277,8 @@ class ExcellentNumbersScraper:
                 except PlaywrightTimeoutError:
                     print(f"[WARN] Timeout loading {cur}, skip.")
                     break
+
+                self._save_html_snapshot(cur, html, page_count)
 
                 rows = self._extract_pairs_from_html(html)
                 print(f"[INFO] Found {len(rows)} items on this page.")
