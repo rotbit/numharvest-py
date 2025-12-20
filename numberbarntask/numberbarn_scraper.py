@@ -1,13 +1,9 @@
 import asyncio
 import json
-import time
-import requests
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from playwright.async_api import async_playwright
 from pymongo import MongoClient
 from datetime import datetime
-from pathlib import Path
-import os
 
 class NumberbarnNumberExtractor:
     """专门用于从numberbarn.com提取号码和价格的简化爬虫"""
@@ -71,23 +67,6 @@ class NumberbarnNumberExtractor:
             )
         except Exception as exc:
             print(f"  [WARN] 保存 HTML 失败 {url}: {exc}")
-
-    def _save_html_local(self, state: str, npa: str, page_number: int, html: str) -> None:
-        """可选：将页面 HTML 保存到本地，调试查看。通过 NB_SAVE_HTML=1 开启，NB_HTML_DIR 覆盖目录。"""
-        if not html:
-            return
-        if os.getenv("NB_SAVE_HTML", "0") not in ("1", "true", "True"):
-            return
-        default_dir = Path.home() / "Desktop" / "html"
-        out_dir = Path(os.getenv("NB_HTML_DIR", default_dir))
-        try:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            filename = f"{state}_{npa}_page{page_number}.html"
-            path = out_dir / filename
-            path.write_text(html, encoding="utf-8")
-            print(f"  [LOCAL] HTML saved: {path}")
-        except Exception as exc:
-            print(f"  [WARN] 保存本地 HTML 失败: {exc}")
     
     def get_all_state_npa_combinations(self, json_file: str = "numberbarn_state_npa_cache.json") -> List[Dict]:
         """从JSON文件获取所有state和npa的组合"""
@@ -267,10 +246,9 @@ class NumberbarnNumberExtractor:
                 print(f"  正在提取第 {page_number} 页数据...")
                 
                 # 提取当前页面的号码数据
-                # 先抓 HTML 供本地/库存档
+                # 先抓 HTML 供库存档
                 html = await page.content()
                 self._save_html_snapshot(page.url, html, meta={"state": state, "npa": npa, "page": page_number})
-                self._save_html_local(state, npa, page_number, html)
 
                 page_numbers = await page.evaluate("""
                     () => {
