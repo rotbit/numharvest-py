@@ -11,6 +11,7 @@ import requests
 from playwright.async_api import async_playwright
 from pymongo import MongoClient, ASCENDING
 from progress_tracker import MongoCrawlHistory
+from pathlib import Path
 
 DEFAULT_JSON_FILE = "/tmp/numberbarn_state_npa_cache.json"  # 本地文件存储路径
 API_URL = "https://www.numberbarn.com/api/npas?$limit=1000"  # 获取 combinations 的 API 接口
@@ -18,21 +19,29 @@ API_URL = "https://www.numberbarn.com/api/npas?$limit=1000"  # 获取 combinatio
 JS_EXTRACT_SCRIPT = """
 () => {
     const numbers = [];
+    // 新版 numberbarn 组件
+    document.querySelectorAll('search-tn .tn-number').forEach(numEl => {
+        const phone = (numEl.textContent || '').trim();
+        if (!phone) return;
+        const priceEl = numEl.closest('search-tn')?.querySelector('.tn-price');
+        const price = priceEl ? (priceEl.textContent || '').trim() : '';
+        numbers.push({ number: phone, price });
+    });
+
+    // 兼容旧选择器
     const phonePattern = /(\\(\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4})/g;
     const pricePattern = /\\$[\\d,]+\\.?\\d*/g;
     const nodes = document.querySelectorAll(
         '.number-item, .phone-number, .listing-item, [data-phone], .search-result, .result-item'
     );
-
-    const pushMatch = (text) => {
-        const phones = text.match(phonePattern);
-        if (!phones) return;
-        const price = text.match(pricePattern)?.[0] ?? '';
-        numbers.push({ number: phones[0].trim(), price });
-    };
-
     if (nodes.length) {
-        nodes.forEach(el => pushMatch(el.textContent || ''));
+        nodes.forEach(el => {
+            const text = el.textContent || '';
+            const phones = text.match(phonePattern);
+            if (!phones) return;
+            const price = text.match(pricePattern)?.[0] ?? '';
+            numbers.push({ number: phones[0].trim(), price });
+        });
     }
     return numbers;
 }
@@ -99,6 +108,23 @@ class NumberbarnNumberExtractor:
             )
         except Exception as exc:
             print(f"  [WARN] 保存 HTML 失败 {url}: {exc}")
+
+    def _save_html_local(self, state: str, npa: str, page_number: int, html: str) -> None:
+        """可选：将页面 HTML 保存到本地目录，便于本地调试查看。"""
+        if not html:
+            return
+        if os.getenv("NB_SAVE_HTML", "0") not in ("1", "true", "True"):
+            return
+        default_dir = Path.home() / "Desktop" / "html"
+        out_dir = Path(os.getenv("NB_HTML_DIR", default_dir))
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"{state}_{npa}_page{page_number}.html"
+            path = out_dir / filename
+            path.write_text(html, encoding="utf-8")
+            print(f"  [LOCAL] HTML saved: {path}")
+        except Exception as exc:
+            print(f"  [WARN] 保存本地 HTML 失败: {exc}")
 
     def get_combinations_from_file(self, json_file: str = DEFAULT_JSON_FILE) -> List[Dict]:
         """从本地JSON文件获取state和npa的组合"""
@@ -275,6 +301,7 @@ class NumberbarnNumberExtractor:
             html,
             meta={"state": state, "npa": npa, "page": page_number},
         )
+        self._save_html_local(state, npa, page_number, html)
         raw_numbers = await page.evaluate(JS_EXTRACT_SCRIPT) or []
         annotated = self._annotate_numbers(raw_numbers, state, npa, page_number, page.url)
 
