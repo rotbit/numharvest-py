@@ -137,9 +137,10 @@ class ExcellentNumbersScraper:
                 continue
             phones = cls.PHONE_RE.findall(text)
             prices = cls.PRICE_RE.findall(text)
-            if not phones or not prices:
+            if not phones:
                 continue
-            results.append({"phone": cls._clean_phone(phones[0]), "price": prices[0].replace(" ", "")})
+            price = prices[0].replace(" ", "") if prices else ""
+            results.append({"phone": cls._clean_phone(phones[0]), "price": price})
         dedup = {(r["phone"], r["price"]): r for r in results}
         return list(dedup.values())
 
@@ -152,8 +153,9 @@ class ExcellentNumbersScraper:
                 continue
             phones = cls.PHONE_RE.findall(t)
             prices = cls.PRICE_RE.findall(t)
-            if phones and prices:
-                results.append({"phone": cls._clean_phone(phones[0]), "price": prices[0].replace(" ", "")})
+            if phones:
+                price = prices[0].replace(" ", "") if prices else ""
+                results.append({"phone": cls._clean_phone(phones[0]), "price": price})
         dedup = {(r["phone"], r["price"]): r for r in results}
         return list(dedup.values())
 

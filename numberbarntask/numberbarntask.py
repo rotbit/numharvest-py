@@ -79,7 +79,7 @@ class NumberbarnNumberExtractor:
 
     def _save_html_snapshot(self, url: str, html: str, meta: Optional[Dict[str, str]] = None) -> None:
         """将原始页面 HTML 保存到 MongoDB（source=url 唯一）。"""
-        if not self.html_collection or not url or not html:
+        if self.html_collection is None or not url or not html:
             return
 
         now = datetime.utcnow()
