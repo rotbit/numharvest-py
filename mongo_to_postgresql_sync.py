@@ -69,10 +69,10 @@ class MongoToPostgreSQLSync:
         )
         self.logger = logging.getLogger(__name__)
     
-    def price_str_to_int(self, price_str: str) -> Optional[int]:
+    def price_str_to_int(self, price_str: str) -> Optional[float]:
         """
-        将价格字符串转换为整数
-        支持格式: $1,234, $99.99, $1234, $1,234.56等
+        将价格字符串转换为数字（保留两位小数）
+        支持格式: $1,234, $99.99, $1234, $1,234.56 等
         """
         if not price_str:
             return None
@@ -89,9 +89,9 @@ class MongoToPostgreSQLSync:
                 clean_price = first + "." + "".join(rest)
             clean_price = clean_price.replace(",", "")
 
-            # 解析为浮点再取整美元（向下取整，保持与原整数列兼容）
+            # 解析为浮点，保留两位小数
             value = float(clean_price)
-            return int(value)
+            return round(value, 2)
             
         except (ValueError, AttributeError):
             self.logger.warning(f"无法解析价格字符串: {price_str}")

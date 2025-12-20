@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS phone_numbers (
   state_code       VARCHAR(128),
   state_name       VARCHAR(128),
   price_str        VARCHAR(50),
-  price            INTEGER,
+  price            NUMERIC,
   source_url       TEXT,
   source           VARCHAR(50),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
