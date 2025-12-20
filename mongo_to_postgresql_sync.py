@@ -71,13 +71,19 @@ class MongoToPostgreSQLSync:
     
     def price_str_to_int(self, price_str: str) -> Optional[float]:
         """
-        将价格字符串转换为数字（保留两位小数）
+        将价格字符串转换为数字，保留两位小数但**截断**而非四舍五入，
+        避免 399.995 等浮点误差被进位到 400.00。
         支持格式: $1,234, $99.99, $1234, $1,234.56 等
         """
         if not price_str:
             return None
-            
+
         try:
+            from decimal import Decimal, InvalidOperation, ROUND_DOWN, getcontext
+
+            # 避免 Decimal 的上下文精度过低
+            getcontext().prec = 16
+
             # 移除货币符号与非数字/小数点字符，避免把“$9.9/mo”解析成 9.9 以外的值
             clean_price = re.sub(r"[^\d.,]", "", price_str)
             if not clean_price:
@@ -89,11 +95,12 @@ class MongoToPostgreSQLSync:
                 clean_price = first + "." + "".join(rest)
             clean_price = clean_price.replace(",", "")
 
-            # 解析为浮点，保留两位小数
-            value = float(clean_price)
-            return round(value, 2)
-            
-        except (ValueError, AttributeError):
+            value = Decimal(clean_price)
+            # 截断到两位小数
+            value = value.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            return float(value)
+
+        except (InvalidOperation, ValueError, AttributeError):
             self.logger.warning(f"无法解析价格字符串: {price_str}")
             return None
     
