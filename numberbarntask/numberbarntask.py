@@ -34,14 +34,6 @@ JS_EXTRACT_SCRIPT = """
     if (nodes.length) {
         nodes.forEach(el => pushMatch(el.textContent || ''));
     }
-    if (!numbers.length) {
-        const bodyText = document.body.textContent || '';
-        const uniquePhones = [...new Set(bodyText.match(phonePattern) || [])];
-        uniquePhones.forEach(phone => {
-            const price = bodyText.match(pricePattern)?.[0] ?? '';
-            numbers.push({ number: phone.trim(), price });
-        });
-    }
     return numbers;
 }
 """

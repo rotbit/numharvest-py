@@ -250,29 +250,6 @@ class NumberbarnNumberExtractor:
                             });
                         }
                         
-                        // 如果没有找到专门的号码元素，进行全局搜索
-                        if (numbers.length === 0) {
-                            const bodyText = document.body.textContent || '';
-                            const phonePattern = /(\\(\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4})/g;
-                            const phoneMatches = bodyText.match(phonePattern);
-                            
-                            if (phoneMatches) {
-                                // 去重
-                                const uniquePhones = [...new Set(phoneMatches)];
-                                
-                                uniquePhones.forEach(phone => {
-                                    // 尝试在附近找到价格
-                                    const pricePattern = /\\$[\\d,]+\\.?\\d*/g;
-                                    const priceMatch = bodyText.match(pricePattern);
-                                    
-                                    numbers.push({
-                                        number: phone.trim(),
-                                        price: priceMatch ? priceMatch[0] : ''
-                                    });
-                                });
-                            }
-                        }
-                        
                         return numbers;
                     }
                 """)

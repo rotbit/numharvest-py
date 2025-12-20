@@ -78,18 +78,20 @@ class MongoToPostgreSQLSync:
             return None
             
         try:
-            # 移除$符号和所有空格
-            clean_price = re.sub(r'[$\s]', '', price_str)
-            
-            # 处理包含小数的情况（向下取整）
-            if '.' in clean_price:
-                clean_price = clean_price.split('.')[0]
-            
-            # 移除所有逗号
-            clean_price = clean_price.replace(',', '')
-            
-            # 转换为整数
-            return int(clean_price) if clean_price else None
+            # 移除货币符号与非数字/小数点字符，避免把“$9.9/mo”解析成 9.9 以外的值
+            clean_price = re.sub(r"[^\d.,]", "", price_str)
+            if not clean_price:
+                return None
+
+            # 仅保留第一个小数点，去掉千分位逗号
+            if clean_price.count(".") > 1:
+                first, *rest = clean_price.split(".")
+                clean_price = first + "." + "".join(rest)
+            clean_price = clean_price.replace(",", "")
+
+            # 解析为浮点再取整美元（向下取整，保持与原整数列兼容）
+            value = float(clean_price)
+            return int(value)
             
         except (ValueError, AttributeError):
             self.logger.warning(f"无法解析价格字符串: {price_str}")
