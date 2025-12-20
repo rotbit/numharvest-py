@@ -145,6 +145,20 @@ class ExcellentNumbersScraper:
         return list(dedup.values())
 
     @classmethod
+    def _extract_cards(cls, soup: BeautifulSoup) -> List[Dict[str, str]]:
+        """针对 excellentnumbers 产品卡片结构的精准提取，更稳健。"""
+        rows: List[Dict[str, str]] = []
+        for card in soup.select(".ProductList li .ProductImage"):
+            phone_el = card.select_one(".ProductDetails a")
+            price_el = card.select_one(".ProductPriceRating em")
+            phone = phone_el.get_text(strip=True) if phone_el else ""
+            price = price_el.get_text(strip=True) if price_el else ""
+            if phone:
+                rows.append({"phone": cls._clean_phone(phone), "price": price})
+        dedup = {(r["phone"], r["price"]): r for r in rows}
+        return list(dedup.values())
+
+    @classmethod
     def _extract_generic(cls, soup: BeautifulSoup) -> List[Dict[str, str]]:
         results = []
         for block in soup.select("div, li, article, tr, section"):
@@ -162,7 +176,11 @@ class ExcellentNumbersScraper:
     @classmethod
     def _extract_pairs_from_html(cls, html: str) -> List[Dict[str, str]]:
         soup = BeautifulSoup(html, "lxml")
-        rows = cls._extract_site_specific(soup)
+        # 1) 优先用精确的卡片选择器，避免因页面结构噪音漏掉价格
+        rows = cls._extract_cards(soup)
+        # 2) 回退到通用/原有逻辑
+        if not rows:
+            rows = cls._extract_site_specific(soup)
         if not rows:
             rows = cls._extract_generic(soup)
         return rows
