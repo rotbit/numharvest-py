@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import os
 import random
 import re
@@ -14,6 +15,8 @@ from progress_tracker import MongoCrawlHistory
 
 DEFAULT_JSON_FILE = "/tmp/numberbarn_state_npa_cache.json"  # 本地文件存储路径
 API_URL = "https://www.numberbarn.com/api/npas?$limit=1000"  # 获取 combinations 的 API 接口
+DEFAULT_LIMIT = 24
+DEFAULT_MAX_PAGES = 10
 # 页面内抽取号码与价格的脚本，放在模块级避免函数过长
 JS_EXTRACT_SCRIPT = """
 () => {
@@ -59,6 +62,7 @@ class NumberbarnNumberExtractor:
         self.db = None
         self.collection = None
         self.html_collection = None
+        self.error_collection = None
 
         # 初始化MongoDB连接
         self.init_mongodb()
@@ -71,6 +75,7 @@ class NumberbarnNumberExtractor:
             self.db = self.mongo_client[self.mongo_db]
             self.collection = self.db['numbers']
             self.html_collection = self.db['page_html']
+            self.error_collection = self.db['error_page_collect']
 
             # 测试连接
             self.mongo_client.admin.command('ping')
@@ -80,6 +85,8 @@ class NumberbarnNumberExtractor:
             self.collection.create_index("phone", unique=True)
             self.html_collection.create_index([("source", ASCENDING), ("url", ASCENDING)], unique=True)
             self.html_collection.create_index("fetched_at")
+            self.error_collection.create_index([("source", ASCENDING), ("url", ASCENDING)], unique=True)
+            self.error_collection.create_index("created_at")
 
         except Exception as e:
             print(f"MongoDB连接失败: {e}")
@@ -107,6 +114,119 @@ class NumberbarnNumberExtractor:
             )
         except Exception as exc:
             print(f"  [WARN] 保存 HTML 失败 {url}: {exc}")
+
+    def _save_error_page(self, url: str, html: str, meta: Optional[Dict[str, str]] = None) -> None:
+        """保存解析失败页面 HTML 到 error_page_collect。"""
+        if self.error_collection is None or not url or not html:
+            return
+
+        now = datetime.utcnow()
+        try:
+            self.error_collection.update_one(
+                {"source": "numberbarn", "url": url},
+                {
+                    "$set": {
+                        "html": html,
+                        "meta": meta or {},
+                        "updated_at": now,
+                    },
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+            )
+        except Exception as exc:
+            print(f"  [WARN] 保存 error_page_collect 失败 {url}: {exc}")
+
+    async def _save_error_snapshot_from_page(self, page, meta: Dict[str, str]) -> None:
+        """从当前 page 抓取 HTML 并写入 error_page_collect。"""
+        try:
+            html = await page.content()
+            self._save_error_page(page.url, html, meta=meta)
+        except Exception as exc:
+            print(f"  [WARN] 保存解析失败页面出错 {page.url}: {exc}")
+
+    def _get_limit_from_url(self, url: str, default_limit: int = DEFAULT_LIMIT) -> int:
+        match = re.search(r"[?&]limit=(\d+)", url)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return default_limit
+        return default_limit
+
+    async def _get_total_pages(self, page, url: str, default_limit: int = DEFAULT_LIMIT) -> Optional[int]:
+        """尝试从页面中解析总页数。"""
+        try:
+            result = await page.evaluate("""
+                () => {
+                    const output = { totalPages: null, totalResults: null, method: null };
+                    const bodyText = document.body ? (document.body.innerText || '') : '';
+
+                    const pageOfMatch = bodyText.match(/page\\s*\\d+\\s*of\\s*(\\d+)/i);
+                    if (pageOfMatch) {
+                        output.totalPages = parseInt(pageOfMatch[1], 10);
+                        output.method = 'page-of';
+                        return output;
+                    }
+
+                    const pageNumbers = [];
+                    const pageNodes = document.querySelectorAll(
+                        '.pagination a, .pagination button, .pager a, .pager button, [aria-label*=\"page\"], [data-page]'
+                    );
+                    pageNodes.forEach(el => {
+                        const label = `${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`;
+                        const match = label.match(/\\b(\\d{1,4})\\b/);
+                        if (match) {
+                            pageNumbers.push(parseInt(match[1], 10));
+                        }
+                        const dataPage = el.getAttribute('data-page');
+                        if (dataPage && /^\\d+$/.test(dataPage)) {
+                            pageNumbers.push(parseInt(dataPage, 10));
+                        }
+                    });
+                    if (pageNumbers.length) {
+                        output.totalPages = Math.max(...pageNumbers);
+                        output.method = 'pagination-links';
+                        return output;
+                    }
+
+                    const totalMatch = bodyText.match(/([\\d,]+)\\s+(results|numbers|listings)/i);
+                    if (totalMatch) {
+                        output.totalResults = parseInt(totalMatch[1].replace(/,/g, ''), 10);
+                        output.method = 'total-results';
+                    }
+                    return output;
+                }
+            """)
+        except Exception:
+            return None
+
+        if not result:
+            return None
+
+        total_pages = result.get("totalPages")
+        if isinstance(total_pages, int) and total_pages > 0:
+            return total_pages
+
+        total_results = result.get("totalResults")
+        limit = self._get_limit_from_url(url, default_limit=default_limit)
+        if isinstance(total_results, int) and total_results > 0 and limit > 0:
+            return math.ceil(total_results / limit)
+
+        return None
+
+    async def _resolve_max_pages(self, page, url: str, meta: Dict[str, str]) -> int:
+        total_pages = await self._get_total_pages(page, url, default_limit=DEFAULT_LIMIT)
+        if total_pages is None:
+            max_pages = DEFAULT_MAX_PAGES
+            print(f"  [WARN] 未能解析总页数，使用默认最大页数 {max_pages}")
+            await self._save_error_snapshot_from_page(
+                page,
+                meta={**meta, "reason": "total_pages_unparsed"},
+            )
+            return max_pages
+
+        return min(total_pages, DEFAULT_MAX_PAGES)
 
     def get_combinations_from_file(self, json_file: str = DEFAULT_JSON_FILE) -> List[Dict]:
         """从本地JSON文件获取state和npa的组合"""
@@ -243,14 +363,15 @@ class NumberbarnNumberExtractor:
             return False
 
     async def extract_numbers_from_url(self, page, url: str, state: str, npa: str, max_numbers: int | None = None) -> List[Dict]:
-        """从指定 URL 提取号码与价格，分页上限 10 页。"""
+        """从指定 URL 提取号码与价格，分页上限受总页数解析与默认最大页数限制。"""
         all_numbers: List[Dict] = []
         page_number = 1
-        max_pages = 10
 
         try:
             print(f"正在处理: {state} - {npa}\\n访问URL: {url}")
             await self._open_search_page(page, url)
+
+            max_pages = await self._resolve_max_pages(page, url, meta={"state": state, "npa": npa})
 
             while page_number <= max_pages:
                 current_numbers = await self._scrape_current_page(page, state, npa, page_number)
@@ -288,6 +409,17 @@ class NumberbarnNumberExtractor:
 
         print(f"    第 {page_number} 页提取到 {len(annotated)} 个号码")
         self._log_samples(annotated)
+        if not annotated:
+            self._save_error_page(
+                page.url,
+                html,
+                meta={
+                    "state": state,
+                    "npa": npa,
+                    "page": page_number,
+                    "reason": "no_numbers_extracted",
+                },
+            )
         if annotated:
             self.save_numbers_to_mongodb(annotated)
         return annotated

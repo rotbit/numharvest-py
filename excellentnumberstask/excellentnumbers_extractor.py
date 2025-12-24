@@ -89,11 +89,14 @@ class ExcellentNumbersScraper:
         self.mongo = MongoClient(uri)
         self.col = self.mongo[mongo_db][mongo_collection]
         self.html_col = self.mongo[mongo_db]["page_html"]
+        self.error_col = self.mongo[mongo_db]["error_page_collect"]
         # 唯一索引（保持你原来的：仅 phone 唯一）
         self.col.create_index("phone", unique=True)
         # HTML 按 source+url 唯一，便于覆写最新页面
         self.html_col.create_index([("source", ASCENDING), ("url", ASCENDING)], unique=True)
         self.html_col.create_index("fetched_at")
+        self.error_col.create_index([("source", ASCENDING), ("url", ASCENDING)], unique=True)
+        self.error_col.create_index("created_at")
 
     # ---------- 人类化动作 ----------
     def _human_sleep(self):
@@ -339,6 +342,39 @@ class ExcellentNumbersScraper:
         except Exception as exc:
             print(f"[WARN] 保存 HTML 失败 {url}: {exc}")
 
+    def _save_error_page(self, url: str, html: str, page_no: int, meta: Optional[Dict[str, str]] = None) -> None:
+        """保存解析失败页面 HTML 到 error_page_collect。"""
+        if not url or not html:
+            return
+        now = datetime.now(timezone.utc)
+        try:
+            payload = meta.copy() if meta else {}
+            payload.setdefault("page_no", page_no)
+            self.error_col.update_one(
+                {"source": "excellent_numbers", "url": url},
+                {
+                    "$set": {
+                        "html": html,
+                        "meta": payload,
+                        "updated_at": now,
+                    },
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+            )
+        except Exception as exc:
+            print(f"[WARN] 保存 error_page_collect 失败 {url}: {exc}")
+
+    def _handle_empty_rows(self, rows: List[Dict[str, str]], url: str, html: str, page_no: int) -> None:
+        if rows:
+            return
+        self._save_error_page(
+            url,
+            html,
+            page_no,
+            meta={"reason": "no_numbers_extracted"},
+        )
+
     # ---------- 抓取主流程 ----------
     async def scrape(self, url: str) -> List[Dict[str, str]]:
         """抓取并返回本轮抓到的 (phone, price) 去重列表（同时已写入 Mongo）。"""
@@ -367,6 +403,7 @@ class ExcellentNumbersScraper:
 
                 rows = self._extract_pairs_from_html(html)
                 print(f"[INFO] Found {len(rows)} items on this page.")
+                self._handle_empty_rows(rows, cur, html, page_count)
                 self._bulk_upsert(rows, source_url=cur)
                 all_rows.extend(rows)
 

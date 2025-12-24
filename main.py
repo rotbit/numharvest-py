@@ -19,7 +19,7 @@ from typing import Any, Dict
 
 from excellentnumberstask import AreaCodeNumbersHarvester
 from mongo_to_postgresql_sync import MongoToPostgreSQLSync
-from numberbarntask import NumberbarnNumberExtractor
+from numberbarntask import NumberbarnNumberExtractor, NumberbarnTollFreeExtractor, NumberbarnGlobalExtractor
 from settings import MongoSettings, PostgresSettings
 from task_lock import HeartbeatManager, TaskLock
 
@@ -31,6 +31,8 @@ LOCK_TIMEOUT_MINUTES = 180
 TASK_LABELS: Dict[str, str] = {
     "excellentnumbers": "excellentnumbers 爬虫",
     "numberbarn": "numberbarn 爬虫",
+    "numberbarn_tollfree": "numberbarn tollfree 爬虫",
+    "numberbarn_global": "numberbarn global 爬虫",
     "sync": "Mongo -> PostgreSQL 同步",
 }
 
@@ -70,6 +72,18 @@ def _run_task_payload(task_key: str, mongo: MongoSettings, postgres: PostgresSet
         return NumberbarnNumberExtractor(
             mongo_host=mongo.host,
             mongo_password=mongo.password,
+            mongo_db=mongo.db,
+        ).run()
+
+    if task_key == "numberbarn_tollfree":
+        return NumberbarnTollFreeExtractor(
+            mongo_host=mongo.host,
+            mongo_db=mongo.db,
+        ).run()
+
+    if task_key == "numberbarn_global":
+        return NumberbarnGlobalExtractor(
+            mongo_host=mongo.host,
             mongo_db=mongo.db,
         ).run()
 
@@ -191,6 +205,8 @@ def main() -> None:
     specs = {
         "excellentnumbers": SCRAPER_INTERVAL_SECONDS,
         "numberbarn": SCRAPER_INTERVAL_SECONDS,
+        "numberbarn_tollfree": SCRAPER_INTERVAL_SECONDS,
+        "numberbarn_global": SCRAPER_INTERVAL_SECONDS,
         "sync": SYNC_INTERVAL_SECONDS,
     }
     for key, interval in specs.items():
