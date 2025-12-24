@@ -1,6 +1,5 @@
 import asyncio
 import json
-import math
 import os
 import random
 import re
@@ -15,8 +14,6 @@ from progress_tracker import MongoCrawlHistory
 
 DEFAULT_JSON_FILE = "/tmp/numberbarn_state_npa_cache.json"  # 本地文件存储路径
 API_URL = "https://www.numberbarn.com/api/npas?$limit=1000"  # 获取 combinations 的 API 接口
-DEFAULT_LIMIT = 24
-DEFAULT_MAX_PAGES = 10
 # 页面内抽取号码与价格的脚本，放在模块级避免函数过长
 JS_EXTRACT_SCRIPT = """
 () => {
@@ -136,97 +133,6 @@ class NumberbarnNumberExtractor:
             )
         except Exception as exc:
             print(f"  [WARN] 保存 error_page_collect 失败 {url}: {exc}")
-
-    async def _save_error_snapshot_from_page(self, page, meta: Dict[str, str]) -> None:
-        """从当前 page 抓取 HTML 并写入 error_page_collect。"""
-        try:
-            html = await page.content()
-            self._save_error_page(page.url, html, meta=meta)
-        except Exception as exc:
-            print(f"  [WARN] 保存解析失败页面出错 {page.url}: {exc}")
-
-    def _get_limit_from_url(self, url: str, default_limit: int = DEFAULT_LIMIT) -> int:
-        match = re.search(r"[?&]limit=(\d+)", url)
-        if match:
-            try:
-                return int(match.group(1))
-            except ValueError:
-                return default_limit
-        return default_limit
-
-    async def _get_total_pages(self, page, url: str, default_limit: int = DEFAULT_LIMIT) -> Optional[int]:
-        """尝试从页面中解析总页数。"""
-        try:
-            result = await page.evaluate("""
-                () => {
-                    const output = { totalPages: null, totalResults: null, method: null };
-                    const bodyText = document.body ? (document.body.innerText || '') : '';
-
-                    const pageOfMatch = bodyText.match(/page\\s*\\d+\\s*of\\s*(\\d+)/i);
-                    if (pageOfMatch) {
-                        output.totalPages = parseInt(pageOfMatch[1], 10);
-                        output.method = 'page-of';
-                        return output;
-                    }
-
-                    const pageNumbers = [];
-                    const pageNodes = document.querySelectorAll(
-                        '.pagination a, .pagination button, .pager a, .pager button, [aria-label*=\"page\"], [data-page]'
-                    );
-                    pageNodes.forEach(el => {
-                        const label = `${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`;
-                        const match = label.match(/\\b(\\d{1,4})\\b/);
-                        if (match) {
-                            pageNumbers.push(parseInt(match[1], 10));
-                        }
-                        const dataPage = el.getAttribute('data-page');
-                        if (dataPage && /^\\d+$/.test(dataPage)) {
-                            pageNumbers.push(parseInt(dataPage, 10));
-                        }
-                    });
-                    if (pageNumbers.length) {
-                        output.totalPages = Math.max(...pageNumbers);
-                        output.method = 'pagination-links';
-                        return output;
-                    }
-
-                    const totalMatch = bodyText.match(/([\\d,]+)\\s+(results|numbers|listings)/i);
-                    if (totalMatch) {
-                        output.totalResults = parseInt(totalMatch[1].replace(/,/g, ''), 10);
-                        output.method = 'total-results';
-                    }
-                    return output;
-                }
-            """)
-        except Exception:
-            return None
-
-        if not result:
-            return None
-
-        total_pages = result.get("totalPages")
-        if isinstance(total_pages, int) and total_pages > 0:
-            return total_pages
-
-        total_results = result.get("totalResults")
-        limit = self._get_limit_from_url(url, default_limit=default_limit)
-        if isinstance(total_results, int) and total_results > 0 and limit > 0:
-            return math.ceil(total_results / limit)
-
-        return None
-
-    async def _resolve_max_pages(self, page, url: str, meta: Dict[str, str]) -> int:
-        total_pages = await self._get_total_pages(page, url, default_limit=DEFAULT_LIMIT)
-        if total_pages is None:
-            max_pages = DEFAULT_MAX_PAGES
-            print(f"  [WARN] 未能解析总页数，使用默认最大页数 {max_pages}")
-            await self._save_error_snapshot_from_page(
-                page,
-                meta={**meta, "reason": "total_pages_unparsed"},
-            )
-            return max_pages
-
-        return min(total_pages, DEFAULT_MAX_PAGES)
 
     def get_combinations_from_file(self, json_file: str = DEFAULT_JSON_FILE) -> List[Dict]:
         """从本地JSON文件获取state和npa的组合"""
@@ -371,15 +277,13 @@ class NumberbarnNumberExtractor:
             print(f"正在处理: {state} - {npa}\\n访问URL: {url}")
             await self._open_search_page(page, url)
 
-            max_pages = await self._resolve_max_pages(page, url, meta={"state": state, "npa": npa})
-
-            while page_number <= max_pages:
+            while True:
                 current_numbers = await self._scrape_current_page(page, state, npa, page_number)
                 all_numbers.extend(current_numbers)
                 if max_numbers and len(all_numbers) >= max_numbers:
                     print(f"  达到 max_numbers={max_numbers}，提前结束该组合")
                     break
-                if not current_numbers or not await self._goto_next_page(page, page_number):
+                if not await self._goto_next_page(page, page_number):
                     break
                 page_number += 1
 

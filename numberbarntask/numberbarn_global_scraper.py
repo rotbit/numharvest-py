@@ -1,6 +1,4 @@
 import asyncio
-import math
-import re
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -9,7 +7,6 @@ from pymongo import MongoClient
 
 DEFAULT_COUNTRY = "UK"
 DEFAULT_LIMIT = 24
-DEFAULT_MAX_PAGES = 10
 
 JS_EXTRACT_SCRIPT = """
 () => {
@@ -62,7 +59,7 @@ class NumberbarnGlobalExtractor:
         mongo_db: str = "extra_numbers",
         mongo_collection: str = "numberbarn_global_numbers",
         use_mongodb: bool = True,
-        max_pages: int = DEFAULT_MAX_PAGES,
+        max_pages: Optional[int] = None,
     ):
         self.mongo_host = mongo_host
         self.mongo_user = mongo_user
@@ -156,97 +153,6 @@ class NumberbarnGlobalExtractor:
         except Exception as exc:
             print(f"  [WARN] 保存 error_page_collect 失败 {url}: {exc}")
 
-    async def _save_error_snapshot_from_page(self, page, meta: Dict[str, str]) -> None:
-        """从当前 page 抓取 HTML 并写入 error_page_collect。"""
-        try:
-            html = await page.content()
-            self._save_error_page(page.url, html, meta=meta)
-        except Exception as exc:
-            print(f"  [WARN] 保存解析失败页面出错 {page.url}: {exc}")
-
-    def _get_limit_from_url(self, url: str, default_limit: int = DEFAULT_LIMIT) -> int:
-        match = re.search(r"[?&]limit=(\d+)", url)
-        if match:
-            try:
-                return int(match.group(1))
-            except ValueError:
-                return default_limit
-        return default_limit
-
-    async def _get_total_pages(self, page, url: str, default_limit: int = DEFAULT_LIMIT) -> Optional[int]:
-        """尝试从页面中解析总页数。"""
-        try:
-            result = await page.evaluate("""
-                () => {
-                    const output = { totalPages: null, totalResults: null, method: null };
-                    const bodyText = document.body ? (document.body.innerText || '') : '';
-
-                    const pageOfMatch = bodyText.match(/page\s*\d+\s*of\s*(\d+)/i);
-                    if (pageOfMatch) {
-                        output.totalPages = parseInt(pageOfMatch[1], 10);
-                        output.method = 'page-of';
-                        return output;
-                    }
-
-                    const pageNumbers = [];
-                    const pageNodes = document.querySelectorAll(
-                        '.pagination a, .pagination button, .pager a, .pager button, [aria-label*="page"], [data-page]'
-                    );
-                    pageNodes.forEach(el => {
-                        const label = `${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`;
-                        const match = label.match(/\b(\d{1,4})\b/);
-                        if (match) {
-                            pageNumbers.push(parseInt(match[1], 10));
-                        }
-                        const dataPage = el.getAttribute('data-page');
-                        if (dataPage && /^\d+$/.test(dataPage)) {
-                            pageNumbers.push(parseInt(dataPage, 10));
-                        }
-                    });
-                    if (pageNumbers.length) {
-                        output.totalPages = Math.max(...pageNumbers);
-                        output.method = 'pagination-links';
-                        return output;
-                    }
-
-                    const totalMatch = bodyText.match(/([\d,]+)\s+(results|numbers|listings)/i);
-                    if (totalMatch) {
-                        output.totalResults = parseInt(totalMatch[1].replace(/,/g, ''), 10);
-                        output.method = 'total-results';
-                    }
-                    return output;
-                }
-            """)
-        except Exception:
-            return None
-
-        if not result:
-            return None
-
-        total_pages = result.get("totalPages")
-        if isinstance(total_pages, int) and total_pages > 0:
-            return total_pages
-
-        total_results = result.get("totalResults")
-        limit = self._get_limit_from_url(url, default_limit=default_limit)
-        if isinstance(total_results, int) and total_results > 0 and limit > 0:
-            return math.ceil(total_results / limit)
-
-        return None
-
-    async def _resolve_max_pages(self, page, url: str, meta: Dict[str, str]) -> int:
-        total_pages = await self._get_total_pages(page, url, default_limit=DEFAULT_LIMIT)
-        if total_pages is None:
-            max_pages = self.max_pages
-            print(f"  [WARN] 未能解析总页数，使用默认最大页数 {max_pages}")
-            await self._save_error_snapshot_from_page(
-                page,
-                meta={**meta, "reason": "total_pages_unparsed"},
-            )
-            return max_pages
-
-        return min(total_pages, self.max_pages)
-
     def save_numbers_to_mongodb(self, numbers: List[Dict]) -> bool:
         """将号码列表保存到MongoDB，每个号码一条记录"""
         if not self.mongo_client or not numbers:
@@ -336,9 +242,7 @@ class NumberbarnGlobalExtractor:
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(3000)
 
-            max_pages = await self._resolve_max_pages(page, url, meta={"country": country})
-
-            while page_number <= max_pages:
+            while True:
                 print(f"  正在提取第 {page_number} 页数据...")
 
                 html = await page.content()
@@ -381,6 +285,10 @@ class NumberbarnGlobalExtractor:
 
                 if current_page_numbers:
                     self.save_numbers_to_mongodb(current_page_numbers)
+
+                if self.max_pages is not None and page_number >= self.max_pages:
+                    print(f"    达到最大页数 {self.max_pages}，停止翻页")
+                    break
 
                 try:
                     next_button_selectors = [
@@ -491,7 +399,7 @@ class NumberbarnGlobalExtractor:
 def extract_from_single_country(
     country: str,
     limit: int = DEFAULT_LIMIT,
-    max_pages: int = 3,
+    max_pages: Optional[int] = None,
     use_mongodb: bool = False,
 ) -> List[Dict]:
     """从单个 country 提取号码的便捷函数"""
@@ -509,7 +417,7 @@ def extract_from_single_country(
 def extract_from_all_global(
     countries: Optional[List[str]] = None,
     limit: int = DEFAULT_LIMIT,
-    max_pages: int = 10,
+    max_pages: Optional[int] = None,
     use_mongodb: bool = True,
 ) -> List[Dict]:
     """从所有 country 提取号码的便捷函数"""
