@@ -57,7 +57,7 @@ class NumberbarnTollFreeExtractor:
         mongo_port: int = 27017,
         mongo_auth_source: str = "admin",
         mongo_db: str = "extra_numbers",
-        mongo_collection: str = "numberbarn_tollfree_numbers",
+        mongo_collection: str = "numbers",
         use_mongodb: bool = True,
         max_pages: Optional[int] = None,
     ):
@@ -97,7 +97,7 @@ class NumberbarnTollFreeExtractor:
             print(f"成功连接到MongoDB数据库: {self.mongo_db}")
 
             # 创建索引提高查询效率
-            self.collection.create_index("number", unique=True)
+            self.collection.create_index("phone", unique=True)
             self.collection.create_index("npa")
             self.html_collection.create_index([("source", 1), ("url", 1)], unique=True)
             self.html_collection.create_index("fetched_at")
@@ -165,49 +165,50 @@ class NumberbarnTollFreeExtractor:
             skipped_count = 0
 
             for number_data in numbers:
-                number = number_data.get("number", "")
+                phone = number_data.get("number") or number_data.get("phone", "")
                 new_price = number_data.get("price", "")
 
-                if not number:
+                if not phone:
                     continue
 
-                existing = self.collection.find_one({"number": number})
+                existing = self.collection.find_one({"phone": phone})
 
                 if existing is None:
                     doc = {
-                        "number": number,
+                        "phone": phone,
                         "price": new_price,
                         "npa": number_data.get("npa", ""),
                         "page": number_data.get("page", 1),
                         "source_url": number_data.get("source_url", ""),
+                        "source": "numberbarn",
                         "type": "tollfree",
-                        "created_at": current_time,
-                        "updated_at": current_time,
+                        "crawled_at": current_time,
                     }
                     try:
                         self.collection.insert_one(doc)
                         inserted_count += 1
                     except Exception as exc:
-                        print(f"    插入记录失败 {number}: {exc}")
+                        print(f"    插入记录失败 {phone}: {exc}")
 
                 elif existing.get("price") != new_price:
                     try:
                         self.collection.update_one(
-                            {"number": number},
+                            {"phone": phone},
                             {
                                 "$set": {
                                     "price": new_price,
                                     "npa": number_data.get("npa", ""),
                                     "page": number_data.get("page", 1),
                                     "source_url": number_data.get("source_url", ""),
+                                    "source": "numberbarn",
                                     "type": "tollfree",
-                                    "updated_at": current_time,
+                                    "crawled_at": current_time,
                                 }
                             },
                         )
                         updated_count += 1
                     except Exception as exc:
-                        print(f"    更新记录失败 {number}: {exc}")
+                        print(f"    更新记录失败 {phone}: {exc}")
                 else:
                     skipped_count += 1
 
