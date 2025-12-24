@@ -55,14 +55,20 @@ class NumberbarnTollFreeExtractor:
     def __init__(
         self,
         mongo_host: str = "43.159.58.235",
-        mongo_password: str = "RsBWd3hTAZeR7kC4",
+        mongo_user: str = "root",
+        mongo_password: str = "pp963470667",
+        mongo_port: int = 27017,
+        mongo_auth_source: str = "admin",
         mongo_db: str = "extra_numbers",
         mongo_collection: str = "numberbarn_tollfree_numbers",
         use_mongodb: bool = True,
         max_pages: int = DEFAULT_MAX_PAGES,
     ):
         self.mongo_host = mongo_host
+        self.mongo_user = mongo_user
         self.mongo_password = mongo_password
+        self.mongo_port = mongo_port
+        self.mongo_auth_source = mongo_auth_source
         self.mongo_db = mongo_db
         self.mongo_collection_name = mongo_collection
         self.use_mongodb = use_mongodb
@@ -81,7 +87,7 @@ class NumberbarnTollFreeExtractor:
         """初始化MongoDB连接"""
         try:
             connection_string = (
-                f"mongodb://extra_numbers:{self.mongo_password}@{self.mongo_host}:27017/{self.mongo_db}?authSource=extra_numbers"
+                f"mongodb://{self.mongo_user}:{self.mongo_password}@{self.mongo_host}:{self.mongo_port}/{self.mongo_db}?authSource={self.mongo_auth_source}"
             )
             self.mongo_client = MongoClient(connection_string)
             self.db = self.mongo_client[self.mongo_db]

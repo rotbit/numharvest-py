@@ -78,13 +78,19 @@ def _run_task_payload(task_key: str, mongo: MongoSettings, postgres: PostgresSet
     if task_key == "numberbarn_tollfree":
         return NumberbarnTollFreeExtractor(
             mongo_host=mongo.host,
+            mongo_user=mongo.user,
             mongo_db=mongo.db,
+            mongo_password=mongo.password,
+            mongo_port=mongo.port,
         ).run()
 
     if task_key == "numberbarn_global":
         return NumberbarnGlobalExtractor(
             mongo_host=mongo.host,
+            mongo_user=mongo.user,
             mongo_db=mongo.db,
+            mongo_password=mongo.password,
+            mongo_port=mongo.port,
         ).run()
 
     if task_key == "sync":
