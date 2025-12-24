@@ -276,7 +276,7 @@ class NumberbarnTollFreeExtractor:
                         },
                     )
 
-                if page_number == 1 and current_page_numbers:
+                if current_page_numbers:
                     print("    前3条记录:")
                     for i, number in enumerate(current_page_numbers[:3]):
                         print(

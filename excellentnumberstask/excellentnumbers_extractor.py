@@ -375,6 +375,14 @@ class ExcellentNumbersScraper:
             meta={"reason": "no_numbers_extracted"},
         )
 
+    @staticmethod
+    def _log_samples(rows: List[Dict[str, str]], sample_size: int = 3) -> None:
+        if not rows:
+            return
+        print("    前3条记录:")
+        for idx, row in enumerate(rows[:sample_size], 1):
+            print(f"      {idx}. 号码: {row.get('phone', '')}, 价格: {row.get('price', '')}")
+
     # ---------- 抓取主流程 ----------
     async def scrape(self, url: str) -> List[Dict[str, str]]:
         """抓取并返回本轮抓到的 (phone, price) 去重列表（同时已写入 Mongo）。"""
@@ -391,7 +399,7 @@ class ExcellentNumbersScraper:
             while cur and cur not in visited:
                 visited.add(cur)
                 page_count += 1
-                print(f"[INFO] Fetching: {cur}")
+                print(f"[INFO] 第 {page_count} 页: {cur}")
 
                 try:
                     html = await self._get_page_html(page, cur)
@@ -403,6 +411,7 @@ class ExcellentNumbersScraper:
 
                 rows = self._extract_pairs_from_html(html)
                 print(f"[INFO] Found {len(rows)} items on this page.")
+                self._log_samples(rows)
                 self._handle_empty_rows(rows, cur, html, page_count)
                 self._bulk_upsert(rows, source_url=cur)
                 all_rows.extend(rows)

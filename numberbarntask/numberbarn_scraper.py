@@ -339,11 +339,14 @@ class NumberbarnNumberExtractor:
                         },
                     )
                 
-                # 打印当前页的前3条记录（如果是第一页）
-                if page_number == 1 and current_page_numbers:
+                # 打印当前页的前3条记录
+                if current_page_numbers:
                     print("    前3条记录:")
                     for i, number in enumerate(current_page_numbers[:3]):
-                        print(f"      {i+1}. 号码: {number.get('number', '')}, 价格: {number.get('price', '')}, 州: {number.get('state', '')}, 区号: {number.get('npa', '')}")
+                        print(
+                            f"      {i+1}. 号码: {number.get('number', '')}, 价格: {number.get('price', '')}, "
+                            f"州: {number.get('state', '')}, 区号: {number.get('npa', '')}"
+                        )
                 
                 # 立即保存当前页数据到MongoDB
                 if current_page_numbers:
