@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from urllib.parse import urlparse, parse_qs
 import sys
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
@@ -141,34 +142,24 @@ class MongoToPostgreSQLSync:
             return False
     
     def get_mongodb_collections(self) -> List[str]:
-        """获取MongoDB中的所有集合名称"""
-        collections = []
+        """目前仅同步 numbers 集合；若不存在则回退为全部集合。"""
         try:
             db = self.mongo_client[self.mongo_db]
             collection_names = db.list_collection_names()
-            
-            # 过滤出包含电话号码数据的集合
-            phone_collections = [name for name in collection_names if 'number' in name.lower()]
-            
-            if not phone_collections:
-                self.logger.warning("未找到包含电话号码数据的集合，使用所有集合")
-                phone_collections = collection_names
-                
-            self.logger.info(f"找到 {len(phone_collections)} 个集合: {phone_collections}")
-            return phone_collections
-            
+
+            if "numbers" in collection_names:
+                self.logger.info("使用单一集合: numbers")
+                return ["numbers"]
+
+            self.logger.warning("未找到 numbers 集合，退回到全部集合: %s", collection_names)
+            return collection_names
+
         except Exception as e:
             self.logger.error(f"获取MongoDB集合失败: {e}")
             return []
     
     def get_recent_mongo_data(self, collection_name: str, days: int = 5) -> List[Dict]:
-        """
-        获取最近指定天数内的MongoDB数据（默认5天）
-        
-        MongoDB文档结构:
-        - excellentnumbers: {phone, price, source_url, source, crawled_at}
-        - numberbarn_numbers: {number, price, state, npa, page, source_url, created_at, updated_at}
-        """
+        """获取最近指定天数内的 MongoDB 数据（默认5天）。主要针对 numbers 集合。"""
         try:
             db = self.mongo_client[self.mongo_db]
             collection = db[collection_name]
@@ -225,6 +216,16 @@ class MongoToPostgreSQLSync:
                 continue
 
             country_code, area_code, local_number = self._split_phone(phone_raw)
+            # numberbarn global 需要保留字母后缀，特殊拆分
+            if base.get("source") == "numberbarn" and (base.get("type") or "").lower() == "global":
+                cc, local_raw = self._split_numberbarn_global(phone_raw)
+                if cc:
+                    country_code = cc
+                if local_raw:
+                    local_number = local_raw
+            # 始终使用字符串保存分段号码，避免后续写库时因数字类型或前导0丢失导致转换失败
+            area_code = str(area_code) if area_code is not None else ""
+            local_number = str(local_number) if local_number is not None else ""
             # 优先使用文档里的区号提示（如 numberbarn 的 npa）
             area_code = base.get("area_code_hint") or area_code
 
@@ -246,6 +247,7 @@ class MongoToPostgreSQLSync:
                     "price": price_int,
                     "source_url": base.get("source_url"),
                     "source": base.get("source"),
+                    "type": base.get("type") or "local",
                     "updated_at": self._extract_timestamp(doc),
                 }
             )
@@ -254,31 +256,50 @@ class MongoToPostgreSQLSync:
         return normalized
 
     def _extract_fields(self, doc: Dict, collection_name: str) -> Dict[str, Any]:
-        """根据来源集合提取基础字段，兼容不同源字段名。"""
-        if collection_name == "numbers":  # excellentnumbers
+        """提取 numbers 集合字段；若遇到其他集合也按 numbers 逻辑处理。"""
+        if collection_name != "numbers":
+            self.logger.debug("集合 %s 也按 numbers 规则处理", collection_name)
+        # numbers 集合里可能混有 excellentnumbers 与 numberbarn，需要根据 source 识别
+        if str(doc.get("source", "")).lower() == "numberbarn":
+            phone = doc.get("phone", "")
+            price = doc.get("price", "")
+            url = doc.get("source_url", "")
+            parsed = urlparse(url) if url else None
+            qs = parse_qs(parsed.query) if parsed else {}
+            url_type = (qs.get("type", [""])[0] or doc.get("type") or "local").lower()
+            source = "numberbarn"
+            # country: 优先 URL 参数 country，其次文档字段，缺省 USA
+            country = qs.get("country", [""])[0] or doc.get("country", "USA")
+            state = doc.get("state") or self._infer_state_from_url(url, collection_name)
+            area_hint = None
+            if url_type == "global":
+                # global: 取国家码（如 +44）作为 area_hint
+                area_hint = doc.get("npa") or ""
+                if not area_hint:
+                    digits = re.sub(r"\D", "", phone or "")
+                    if len(digits) > 10:
+                        area_hint = digits[:-10] or ""
+                if not area_hint and qs.get("country"):
+                    area_hint = qs.get("country", [""])[0]
+            else:
+                # tollfree/local: npa 参数优先，其次文档字段
+                area_hint = qs.get("npa", [""])[0] or doc.get("npa")
+            record_type = url_type or "local"
+        else:
             phone = doc.get("phone", "")
             price = doc.get("price", "")
             url = doc.get("source_url", "")
             source = doc.get("source", "excellent_number")
+            # excellentnumbers: URL 不含 country，保持文档或默认 USA
             country = doc.get("country", "USA")
             state = doc.get("region") or self._infer_state_from_url(url, collection_name)
+            # excellentnumbers: URL 形如 /categories/Florida/305 -> 取最后段为 area_hint
             area_hint = None
-        elif collection_name == "numberbarn_numbers":
-            phone = doc.get("number", "")
-            price = doc.get("price", "")
-            url = doc.get("source_url", "")
-            source = "numberbarn"
-            country = doc.get("country", "USA")
-            state = doc.get("state") or self._infer_state_from_url(url, collection_name)
-            area_hint = doc.get("npa")
-        else:
-            phone = doc.get("phone", doc.get("number", ""))
-            price = doc.get("price", "")
-            url = doc.get("source_url", doc.get("url", ""))
-            source = doc.get("source", collection_name)
-            country = doc.get("country", "USA")
-            state = doc.get("region") or self._infer_state_from_url(url, collection_name)
-            area_hint = doc.get("area_code") or doc.get("npa")
+            if url:
+                m = re.search(r"/categories/[^/]+/([0-9A-Za-z]+)", url)
+                if m:
+                    area_hint = m.group(1)
+            record_type = doc.get("type", "local")
 
         return {
             "phone": phone,
@@ -288,6 +309,7 @@ class MongoToPostgreSQLSync:
             "country": country,
             "state": state,
             "area_code_hint": area_hint,
+            "type": record_type,
         }
 
     def _split_phone(self, phone: str) -> tuple[str, str, str]:
@@ -315,6 +337,25 @@ class MongoToPostgreSQLSync:
         area_code = national[:3]
         local_number = national[3:]
         return country_code, area_code, local_number
+
+    def _split_numberbarn_global(self, phone: str) -> tuple[str, str]:
+        """
+        对 numberbarn global 号码进行拆分，保留字母后缀。
+        期望格式: +<country_code> <local_part>，如 "+44 1806600-CAR"
+        返回 (country_code, local_part)
+        """
+        if not phone:
+            return "", ""
+        s = phone.strip()
+        m = re.match(r"^\+?(\d{1,3})[\s-]*(.+)$", s)
+        if m:
+            return m.group(1), m.group(2).strip()
+
+        # Fallback：全部数字时，取前三位为国家码
+        digits = re.sub(r"\D", "", s)
+        if len(digits) >= 4:
+            return digits[:3], s[len(digits[:3]):].lstrip()
+        return "", s
 
     def _infer_state_from_url(self, url: str, collection_name: str) -> str:
         """从 URL 提取州/地区：excellentnumbers 用路径，numberbarn 用 state 参数。"""
@@ -441,7 +482,8 @@ class MongoToPostgreSQLSync:
                 country_code,
                 country,
                 state_code,
-                state_name
+                state_name,
+                type
             FROM phone_numbers
             WHERE (area_code, local_number) IN ({values_sql})
         """
@@ -473,6 +515,7 @@ class MongoToPostgreSQLSync:
                 existing_country,
                 existing_state_code,
                 existing_state_name,
+                existing_type,
             ) = existing[key]
             if (
                 record.get("price_str") != price_str
@@ -483,6 +526,7 @@ class MongoToPostgreSQLSync:
                 or record.get("country") != existing_country
                 or (record.get("state_code") or "") != (existing_state_code or "")
                 or (record.get("state_name") or "") != (existing_state_name or "")
+                or (record.get("type") or "") != (existing_type or "")
             ):
                 to_update.append(record)
             else:
@@ -495,7 +539,7 @@ class MongoToPostgreSQLSync:
             return
         query = """
             INSERT INTO phone_numbers
-            (country_code, area_code, local_number, country, state_code, state_name, price_str, price, source_url, source, updated_at)
+            (country_code, area_code, local_number, country, state_code, state_name, price_str, price, source_url, source, type, updated_at)
             VALUES %s
             ON CONFLICT (area_code, local_number) DO UPDATE SET
                 country_code = EXCLUDED.country_code,
@@ -506,6 +550,7 @@ class MongoToPostgreSQLSync:
                 price = EXCLUDED.price,
                 source_url = EXCLUDED.source_url,
                 source = EXCLUDED.source,
+                type = EXCLUDED.type,
                 updated_at = EXCLUDED.updated_at
         """
         values = [
@@ -520,6 +565,7 @@ class MongoToPostgreSQLSync:
                 r["price"],
                 r["source_url"],
                 r["source"],
+                r.get("type"),
                 r["updated_at"],
             )
             for r in records

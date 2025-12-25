@@ -2,7 +2,8 @@ CREATE TABLE IF NOT EXISTS phone_numbers (
   id               BIGSERIAL PRIMARY KEY,
   country_code     VARCHAR(8)   NOT NULL,
   area_code        VARCHAR(32) NOT NULL,
-  local_number     VARCHAR(32)  NOT NULL,
+  -- 使用 TEXT 保存尾号，支持包含字母/特殊字符的号码，避免数值类型转换丢失/报错
+  local_number     TEXT  NOT NULL,
   country          VARCHAR(64),
   state_code       VARCHAR(128),
   state_name       VARCHAR(128),
@@ -10,6 +11,7 @@ CREATE TABLE IF NOT EXISTS phone_numbers (
   price            NUMERIC,
   source_url       TEXT,
   source           VARCHAR(50),
+  type             VARCHAR(32) NOT NULL DEFAULT 'local',
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (area_code, local_number)
